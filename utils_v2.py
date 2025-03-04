@@ -139,124 +139,32 @@ def KalmanFilter_1D(
     return ests
 
 
-@jjit
-def step_estimation(
-    A: jnp.ndarray, B: jnp.ndarray, x_k: jnp.ndarray, u_k: jnp.ndarray, w_k: jnp.ndarray
-) -> jnp.ndarray:
-    """
-    Predict the next state of the system based on the current state, input, and noise.
-
-    Args:
-        A (jnp.ndarray): State transition matrix.
-        B (jnp.ndarray): Control input matrix.
-        x_k (jnp.ndarray): Current state vector.
-        u_k (jnp.ndarray): Control input vector.
-        w_k (jnp.ndarray): Process noise vector.
-
-    Returns:
-        new_x_k (jnp.ndarray): Predicted next state vector.
-    """
-    try:
-        x_k = x_k.reshape((-1, 1))
-        new_x_k = A @ x_k + B @ u_k + w_k
-        return new_x_k
-    except Exception as e:
-        print("Error in the step estimation function, the error: ", e)
-
-
-@jjit
-def process_covariance(A: jnp.ndarray, P: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
-    """
-    Update the covariance matrix of the state based on the state transition matrix and process noise.
-
-    Args:
-        A (jnp.ndarray): State transition matrix.
-        P (jnp.ndarray): Current error covariance matrix.
-        Q (jnp.ndarray): Process noise covariance matrix.
-
-    Returns:
-        new_P (jnp.ndarray): Updated error covariance matrix.
-    """
-    try:
-        new_P = A @ P @ A.T + Q
-        return new_P
-    except Exception as e:
-        print("Error in the proccess covariance function, the error: ", e)
-
-
-@jjit
-def kalman_function(P: jnp.ndarray, H: jnp.ndarray, R: jnp.ndarray) -> jnp.ndarray:
-    """
-    Compute the Kalman gain for updating the state estimate.
-
-    Args:
-        P (jnp.ndarray): Error covariance matrix.
-        H (jnp.ndarray): Observation matrix.
-        R (jnp.ndarray): Measurement noise covariance matrix.
-
-    Returns:
-        K (jnp.ndarray): Kalman gain matrix.
-    """
-    try:
-        x = P @ H.T
-        K = x @ jnp.linalg.inv(H @ x + R)
-        K = jnp.nan_to_num(K, nan=0)
-        return K
-    except Exception as e:
-        print("Error in the kalman gain function, the error: ", e)
-
-
-@jjit
-def current_state_and_process(
-    K: jnp.ndarray,
-    H: jnp.ndarray,
-    C: jnp.ndarray,
-    x_km: jnp.ndarray,
-    x_kp: jnp.ndarray,
-    p_kp: jnp.ndarray,
-    Z: jnp.ndarray,
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """
-    Update the state estimate and covariance matrix based on the Kalman gain and measurement.
-
-    Args:
-        K (jnp.ndarray): Kalman gain matrix.
-        H (jnp.ndarray): Observation matrix.
-        C (jnp.ndarray): System output matrix.
-        x_km (jnp.ndarray): Measured state vector.
-        x_kp (jnp.ndarray): Predicted state vector.
-        p_kp (jnp.ndarray): Predicted error covariance matrix.
-        Z (jnp.ndarray): Measurement noise matrix.
-
-    Returns:
-        Tuple[jnp.ndarray, jnp.ndarray]: Updated state estimate vector and updated error covariance matrix.
-    """
-    try:
-        Y = C @ x_km.reshape((-1, 1)) + Z
-        x_k = x_kp + K @ (Y - H @ x_kp)
-        p_k = (jnp.eye(K.shape[0]) - K @ H) @ p_kp
-        return x_k, p_k
-    except Exception as e:
-        print(
-            "Error in the new state and proccess calculation function, the error: ", e
-        )
-
-
 class KalmanFilter:
     """
-    Implements a Kalman Filter for state estimation in dynamic systems.
+    Implements a discrete-time Kalman Filter for state estimation in linear dynamic systems.
+
+    The filter operates in two stages:
+    1. Prediction - estimates the next state using system dynamics
+    2. Update - corrects estimates using noisy measurements
+
+    Maintains:
+    - State estimate (x_k)
+    - Error covariance matrix (P)
+    - Kalman gain (K) from last update
 
     Attributes:
-        x_k (jnp.ndarray): Current state estimate vector.
-        A (jnp.ndarray): State transition matrix.
-        B (jnp.ndarray): Control input matrix.
-        H (jnp.ndarray): Observation matrix.
-        R (jnp.ndarray): Measurement noise covariance matrix.
-        C (jnp.ndarray): System output matrix.
-        Q (jnp.ndarray): Process noise covariance matrix.
-        Z (jnp.ndarray): Measurement noise matrix.
-        w_k (jnp.ndarray): Process noise vector.
-        P (jnp.ndarray): Error covariance matrix.
+        x_k (jnp.ndarray): Current state estimate vector (n x 1)
+        A (jnp.ndarray): State transition matrix (n x n)
+        B (jnp.ndarray): Control input matrix (n x m)
+        H (jnp.ndarray): Observation matrix (p x n)
+        R (jnp.ndarray): Measurement noise covariance matrix (p x p)
+        C (jnp.ndarray): Output matrix for measurements (p x n)
+        Q (jnp.ndarray): Process noise covariance matrix (n x n)
+        Z (jnp.ndarray): Measurement noise matrix (p x 1)
+        w_k (jnp.ndarray): Process noise vector (n x 1)
+        P (jnp.ndarray): Error covariance matrix (n x n)
+        P_0 (jnp.ndarray): Initial error covariance matrix (n x n)
+        K (jnp.ndarray): Kalman gain matrix from last update (n x p)
     """
 
     def __init__(
@@ -273,20 +181,21 @@ class KalmanFilter:
         P_0: jnp.ndarray,
     ):
         """
-        Initialize the Kalman Filter with the given parameters.
+        Initialize Kalman Filter with system parameters and initial state.
 
         Args:
-            x_0 (jnp.ndarray): Initial state estimate vector.
-            A (jnp.ndarray): State transition matrix.
-            B (jnp.ndarray): Control input matrix.
-            H (jnp.ndarray): Observation matrix.
-            R (jnp.ndarray): Measurement noise covariance matrix.
-            C (jnp.ndarray): System output matrix.
-            Q (jnp.ndarray): Process noise covariance matrix.
-            Z (jnp.ndarray): Measurement noise matrix.
-            w_k (jnp.ndarray): Process noise vector.
-            P_0 (jnp.ndarray): Initial error covariance matrix.
+            x_0: Initial state estimate (n-dim vector)
+            A: State transition matrix (n x n)
+            B: Control input matrix (n x m)
+            H: Observation matrix (p x n)
+            R: Measurement noise covariance (p x p)
+            C: Output matrix for measurements (p x n)
+            Q: Process noise covariance (n x n)
+            Z: Measurement noise (p x 1)
+            w_k: Process noise vector (n x 1)
+            P_0: Initial error covariance (n x n)
         """
+
         self.x_0 = x_0.reshape((-1, 1))
         self.x_k = self.x_0
         self.A = A
@@ -301,45 +210,114 @@ class KalmanFilter:
         self.P_0 = P_0
 
     def reset(self) -> None:
-        """Resets the state and covariance matrix to their initial values."""
+        """Reset filter to initial state and covariance"""
         self.x_k = self.x_0
         self.P = self.P_0
 
-    def predict(self, u_k: jnp.ndarray) -> jnp.ndarray:
+    def step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
         """
-        Predicts the next state based on the control input and process model.
+        Predict next state using system dynamics and control input.
 
         Args:
-            u_k (jnp.ndarray): Control input vector.
+            u_k: Control input vector (m x 1)
 
         Returns:
-            jnp.ndarray: Updated state estimate vector.
+            Predicted state vector (n x 1)
+        """
+
+        try:
+            x_k = self.x_k.reshape((-1, 1))
+            new_x_k = self.A @ x_k + self.B @ u_k + self.w_k
+            return new_x_k
+        except Exception as e:
+            print("Error in the step estimation function, the error: ", e)
+
+    def process_covariance(self) -> jnp.ndarray:
+        """
+        Update error covariance matrix using system dynamics and process noise.
+
+        Returns:
+            Updated covariance matrix (n x n)
+        """
+
+        try:
+            new_P = self.A @ self.P @ self.A.T + self.Q
+            return new_P
+        except Exception as e:
+            print("Error in the proccess covariance function, the error: ", e)
+
+    def kalman_function(self) -> jnp.ndarray:
+        """
+        Compute optimal Kalman gain using current covariance estimates.
+
+        Returns:
+            Kalman gain matrix (n x p)
+        """
+
+        try:
+            x = self.P @ self.H.T
+            K = x @ jnp.linalg.inv(self.H @ x + self.R)
+            K = jnp.nan_to_num(K, nan=0)
+            return K
+        except Exception as e:
+            print("Error in the kalman gain function, the error: ", e)
+
+    def current_state_and_process(
+        self, x_km: jnp.ndarray
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """
+        Update state estimate using measurement and Kalman gain.
+
+        Args:
+            x_km: Noisy measurement vector (p x 1)
+
+        Returns:
+            Tuple containing:
+            - Corrected state estimate (n x 1)
+            - Updated error covariance (n x n)
         """
         try:
-            self.x_k = step_estimation(
-                self.A, self.B, self.x_k, u_k, self.w_k
-            ).squeeze()
-            self.P = process_covariance(self.A, self.P, self.Q)
+            Y = self.C @ x_km.reshape((-1, 1)) + self.Z
+            x_k = self.x_k + self.K @ (Y - self.H @ self.x_k)
+            p_k = (jnp.eye(self.K.shape[0]) - self.K @ self.H) @ self.P
+            return x_k, p_k
+        except Exception as e:
+            print(
+                "Error in the new state and proccess calculation function, the error: ",
+                e,
+            )
+
+    def predict(self, u_k: jnp.ndarray) -> jnp.ndarray:
+        """
+        Execute prediction step of Kalman filter.
+
+        Args:
+            u_k: Control input vector (m x 1)
+
+        Returns:
+            Predicted state vector (n x 1)
+        """
+        try:
+            self.x_k = self.step_estimation(u_k).squeeze()
+            self.P = self.process_covariance()
             return self.x_k
         except Exception as e:
             print("Error in the predict method, the error: ", e)
 
     def update(self, x_km: jnp.ndarray) -> jnp.ndarray:
         """
-        Updates the state estimate based on the new measurement.
+        Execute update step of Kalman filter using measurement.
 
         Args:
-            x_km (jnp.ndarray): Measured state vector.
+            x_km: Noisy measurement vector (p x 1)
 
         Returns:
-            jnp.ndarray: Updated state estimate vector.
+            Corrected state estimate (n x 1)
         """
         try:
             self.x_k = self.x_k.reshape((-1, 1))
-            K = kalman_function(self.P, self.H, self.R)
-            self.x_k, self.P = current_state_and_process(
-                K, self.H, self.C, x_km, self.x_k, self.P, self.Z
-            )
+            self.K = self.kalman_function()
+            self.x_k, self.P = self.current_state_and_process(x_km)
             return self.x_k.squeeze()
         except Exception as e:
             print("Error in the update method, the error: ", e)
