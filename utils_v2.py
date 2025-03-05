@@ -157,8 +157,8 @@ class KalmanFilter:
         A (jnp.ndarray): State transition matrix (n x n)
         B (jnp.ndarray): Control input matrix (n x m)
         H (jnp.ndarray): Observation matrix (p x n)
-        R (jnp.ndarray): Measurement noise covariance matrix (p x p)
         C (jnp.ndarray): Output matrix for measurements (p x n)
+        R (jnp.ndarray): Measurement noise covariance matrix (p x p)
         Q (jnp.ndarray): Process noise covariance matrix (n x n)
         Z (jnp.ndarray): Measurement noise matrix (p x 1)
         w_k (jnp.ndarray): Process noise vector (n x 1)
@@ -173,8 +173,8 @@ class KalmanFilter:
         A: jnp.ndarray,
         B: jnp.ndarray,
         H: jnp.ndarray,
-        R: jnp.ndarray,
         C: jnp.ndarray,
+        R: jnp.ndarray,
         Q: jnp.ndarray,
         Z: jnp.ndarray,
         w_k: jnp.ndarray,
@@ -188,8 +188,8 @@ class KalmanFilter:
             A: State transition matrix (n x n)
             B: Control input matrix (n x m)
             H: Observation matrix (p x n)
-            R: Measurement noise covariance (p x p)
             C: Output matrix for measurements (p x n)
+            R: Measurement noise covariance (p x p)
             Q: Process noise covariance (n x n)
             Z: Measurement noise (p x 1)
             w_k: Process noise vector (n x 1)
@@ -201,8 +201,8 @@ class KalmanFilter:
         self.A = A
         self.B = B
         self.H = H
-        self.R = R
         self.C = C
+        self.R = R
         self.Q = Q
         self.Z = Z
         self.w_k = w_k
@@ -219,10 +219,10 @@ class KalmanFilter:
         Predict next state using system dynamics and control input.
 
         Args:
-            u_k: Control input vector (m x 1)
+            u_k: Control input vector (m,1)
 
         Returns:
-            Predicted state vector (n x 1)
+            Predicted state vector (n,)
         """
 
         try:
@@ -289,13 +289,13 @@ class KalmanFilter:
 
     def predict(self, u_k: jnp.ndarray) -> jnp.ndarray:
         """
-        Execute prediction step of Kalman filter.
+        Predicts the next state based on the control input and process model.
 
-        Args:
-            u_k: Control input vector (m x 1)
+        Parameters:
+            u_k (ndarray): Control input vector of shape (m, 1).
 
         Returns:
-            Predicted state vector (n x 1)
+            ndarray: Updated state estimate vector of shape (n,).
         """
         try:
             self.x_k = self.step_estimation(u_k).squeeze()
@@ -306,13 +306,13 @@ class KalmanFilter:
 
     def update(self, x_km: jnp.ndarray) -> jnp.ndarray:
         """
-        Execute update step of Kalman filter using measurement.
+        Updates the state estimate based on the new measurement.
 
-        Args:
-            x_km: Noisy measurement vector (p x 1)
+        Parameters:
+            x_km (ndarray): Measured state vector of shape (n, 1).
 
         Returns:
-            Corrected state estimate (n x 1)
+            ndarray: Updated state estimate vector of shape (n,).
         """
         try:
             self.x_k = self.x_k.reshape((-1, 1))
