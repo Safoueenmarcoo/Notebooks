@@ -277,8 +277,8 @@ class KalmanFilter:
             - Updated error covariance (n x n)
         """
         try:
-            Y = self.C @ x_km.reshape((-1, 1)) + self.Z
-            x_k = self.x_k + self.K @ (Y - self.H @ self.x_k)
+            measurements = self.C @ x_km.reshape((-1, 1)) + self.Z
+            x_k = self.x_k + self.K @ (measurements - self.H @ self.x_k)
             p_k = (jnp.eye(self.K.shape[0]) - self.K @ self.H) @ self.P
             return x_k, p_k
         except Exception as e:
