@@ -214,7 +214,7 @@ class KalmanFilter:
         self.x_k = self.x_0
         self.P = self.P_0
 
-    def step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
+    def _step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
         """
         Predict next state using system dynamics and control input.
 
@@ -232,7 +232,7 @@ class KalmanFilter:
         except Exception as e:
             print("Error in the step estimation function, the error: ", e)
 
-    def process_covariance(self) -> jnp.ndarray:
+    def _process_covariance(self) -> jnp.ndarray:
         """
         Update error covariance matrix using system dynamics and process noise.
 
@@ -246,7 +246,7 @@ class KalmanFilter:
         except Exception as e:
             print("Error in the proccess covariance function, the error: ", e)
 
-    def kalman_function(self) -> jnp.ndarray:
+    def _kalman_function(self) -> jnp.ndarray:
         """
         Compute optimal Kalman gain using current covariance estimates.
 
@@ -262,7 +262,7 @@ class KalmanFilter:
         except Exception as e:
             print("Error in the kalman gain function, the error: ", e)
 
-    def current_state_and_process(
+    def _current_state_and_process(
         self, x_km: jnp.ndarray
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """
@@ -298,8 +298,8 @@ class KalmanFilter:
             ndarray: Updated state estimate vector of shape (n,).
         """
         try:
-            self.x_k = self.step_estimation(u_k).squeeze()
-            self.P = self.process_covariance()
+            self.x_k = self._step_estimation(u_k).squeeze()
+            self.P = self._process_covariance()
             return self.x_k
         except Exception as e:
             print("Error in the predict method, the error: ", e)
@@ -316,8 +316,8 @@ class KalmanFilter:
         """
         try:
             self.x_k = self.x_k.reshape((-1, 1))
-            self.K = self.kalman_function()
-            self.x_k, self.P = self.current_state_and_process(x_km)
+            self.K = self._kalman_function()
+            self.x_k, self.P = self._current_state_and_process(x_km)
             return self.x_k.squeeze()
         except Exception as e:
             print("Error in the update method, the error: ", e)
