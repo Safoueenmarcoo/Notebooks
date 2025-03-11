@@ -230,9 +230,7 @@ class KalmanFilter:
             new_x_k = self.A @ x_k + self.B @ u_k + self.w_k
             return new_x_k
         except Exception as e:
-            raise RuntimeError(
-                f"Error in the step estimation function, the error: {e}"
-            ) from e
+            raise RuntimeError(f"Error in the step estimation function: {e}") from e
 
     def _process_covariance(self) -> jnp.ndarray:
         """
@@ -246,9 +244,7 @@ class KalmanFilter:
             new_P = self.A @ self.P @ self.A.T + self.Q
             return new_P
         except Exception as e:
-            raise RuntimeError(
-                f"Error in the proccess covariance function, the error: {e}"
-            ) from e
+            raise RuntimeError(f"Error in the proccess covariance function: {e}") from e
 
     def _kalman_function(self) -> jnp.ndarray:
         """
@@ -264,9 +260,7 @@ class KalmanFilter:
             K = jnp.nan_to_num(K, nan=0)
             return K
         except Exception as e:
-            raise RuntimeError(
-                f"Error in the kalman gain function, the error: {e}"
-            ) from e
+            raise RuntimeError(f"Error in the kalman gain function: {e}") from e
 
     def _current_state_and_process(
         self, x_km: jnp.ndarray
@@ -307,7 +301,7 @@ class KalmanFilter:
             self.P = self._process_covariance()
             return self.x_k
         except Exception as e:
-            raise RuntimeError(f"Error in the predict method, the error: {e}") from e
+            raise RuntimeError(f"Error in the predict method: {e}") from e
 
     def update(self, x_km: jnp.ndarray) -> jnp.ndarray:
         """
@@ -325,7 +319,7 @@ class KalmanFilter:
             self.x_k, self.P = self._current_state_and_process(x_km)
             return self.x_k.squeeze()
         except Exception as e:
-            raise RuntimeError(f"Error in the update method, the error:  {e}") from e
+            raise RuntimeError(f"Error in the update method:  {e}") from e
 
 
 "########################################################################################### Kalman Filter + RL ###########################################################################################"
