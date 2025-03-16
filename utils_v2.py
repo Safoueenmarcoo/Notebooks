@@ -319,7 +319,7 @@ class KalmanFilter:
             self.x_k, self.P = self._current_state_and_process(x_km)
             return self.x_k.squeeze()
         except Exception as e:
-            raise RuntimeError(f"Error in the update method:  {e}") from e
+            raise RuntimeError(f"Error in the update method: {e}") from e
 
 
 "########################################################################################### Kalman Filter + RL ###########################################################################################"
