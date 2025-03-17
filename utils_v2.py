@@ -1,4 +1,5 @@
 import jax.numpy as jnp  # type: ignore
+from jax import jacfwd # type: ignore
 import gymnasium as gym  # type: ignore
 from sklearn.preprocessing import normalize  # type: ignore
 from keras.models import Sequential  # type: ignore
@@ -320,6 +321,121 @@ class KalmanFilter:
             return self.x_k.squeeze()
         except Exception as e:
             raise RuntimeError(f"Error in the update method: {e}") from e
+
+"########################################################################################### Extended Kalman Filter ###########################################################################################"
+
+class ExtendedKalmanFilter(KalmanFilter):
+    def __init__(
+        self,
+        x_0: jnp.ndarray | float | int,
+        f: callable,
+        h: callable,
+        R: jnp.ndarray,
+        Q: jnp.ndarray,
+        Z: jnp.ndarray,
+        w_k: jnp.ndarray,
+        P_0: jnp.ndarray,
+        jaccobian_f: callable = None,
+        jaccobian_h: callable = None,
+    ) -> None:
+        if not isinstance(x_0, (jnp.ndarray, float, int)):
+            raise Exception(
+                "The State input must be of type jnp.ndarray, float, or int"
+            )
+        # Expand scalar state into array if necessary
+        x_0 = jnp.expand_dims(x_0, axis=-1) if type(x_0) in (int, float) else x_0
+        super().__init__(x_0, None, None, None, None, R, Q, Z, w_k, P_0)
+        if jaccobian_f is not None:
+            self._function_f = jaccobian_f
+            self._set_matrix_f = self._set_none
+            self.A = self._function_f(self.x_k)
+
+        else:
+            self._set_matrix_f = self._matrix_f
+
+        self.f = f  # Nonlinear state transition function: f(x, u)
+
+        if jaccobian_h is not None:
+            self._function_h = jaccobian_h
+            self._set_matrix_h = self._set_none
+            self.H = self._function_h(self.x_k)
+        else:
+            self._set_matrix_h = self._matrix_h
+
+        self.h = h  # Nonlinear measurement function: h(x)
+
+    def _set_none(self, u_k: jnp.ndarray = None) -> None:
+        pass
+
+    def _jacobian(
+        self, f: callable, x: jnp.ndarray, u: jnp.ndarray = None
+    ) -> jnp.ndarray:
+        """
+        Compute the full Jacobian of a vector-valued function f at x.
+        """
+        jac_F = jacfwd(f)  # Forward-mode Jacobian
+        return jnp.array(jac_F(x)) if u is None else jnp.array(jac_F(x, u))
+
+    def _matrix_f(self, x, u):
+        return self._jacobian(self.f, x, u)  # State transition Jacobian
+
+    def _matrix_h(self, x):
+        return self._jacobian(self.h, x)  # Measurement Jacobian
+
+    def _step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
+        """
+        Predicts the next state using the nonlinear system dynamics f and control input u_k.
+
+        Args:
+            u_k: Control input vector (m x 1)
+
+        Returns:
+            Predicted state vector (n x 1)
+
+        Raises:
+            RuntimeError: If an error occurs during the prediction.
+        """
+
+        try:
+            self._set_matrix_f(u_k)
+            self._set_matrix_h()
+            new_x_k = self.f(self.x_k, u_k) + self.w_k
+            return new_x_k
+        except Exception as e:
+            raise RuntimeError(f"Error in EKF step estimation:{e}") from e
+
+    def _current_state_and_process(
+        self, x_km: jnp.ndarray
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """
+        Updates the state estimate using a measurement and the Kalman gain.
+
+        This function recomputes the linearization matrices A and H based on the current state.
+
+        Args:
+            x_km: Noisy measurement vector (p x 1)
+
+        Returns:
+            A tuple containing:
+            - Corrected state estimate (n x 1)
+            - Updated error covariance matrix (n x n)
+
+        Raises:
+            RuntimeError: If an error occurs during state update.
+        """
+        try:
+            # Recompute linearization at current state
+            self.A = self._function_f(self.x_k)
+            self.H = self._function_h(self.x_k)
+
+            measurements = self.h(x_km) + self.Z
+            x_k = self.x_k + self.K @ (measurements - self.H @ self.x_k)
+            p_k = (jnp.eye(self.K.shape[0]) - self.K @ self.H) @ self.P
+            return x_k, p_k
+        except Exception as e:
+            raise RuntimeError(f"Error in EKF state and process update:{e}") from e
+
+
 
 
 "########################################################################################### Kalman Filter + RL ###########################################################################################"
