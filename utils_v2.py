@@ -327,6 +327,27 @@ class KalmanFilter:
 
 
 class ExtendedKalmanFilter(KalmanFilter):
+    """
+    Implements an Extended Kalman Filter (EKF) for state estimation in nonlinear systems.
+
+    Attributes:
+        x_k (jnp.ndarray): Current state estimate (shape n x 1).
+        f (callable): Nonlinear state transition function, f(x, u), where:
+            - x is the state vector (n x 1).
+            - u is the control input vector (m x 1).
+            - Returns the predicted state vector (n x 1).
+        h (callable): Nonlinear measurement function, h(x), where:
+            - x is the state vector (n x 1).
+            - Returns the predicted measurement vector (p x 1).
+        R (jnp.ndarray): Measurement noise covariance matrix (shape p x p).
+        Q (jnp.ndarray): Process noise covariance matrix (shape n x n).
+        Z (jnp.ndarray): Measurement noise vector (shape p x 1).
+        w_k (jnp.ndarray): Process noise vector (shape n x 1).
+        P (jnp.ndarray): Error covariance matrix (shape n x n).
+        _function_f (callable): Jacobian of the state transition function, f(x, u).
+        _function_h (callable): Jacobian of the measurement function, h(x).
+    """
+
     def __init__(
         self,
         x_0: jnp.ndarray | float | int,
@@ -340,6 +361,24 @@ class ExtendedKalmanFilter(KalmanFilter):
         jaccobian_f: callable = None,
         jaccobian_h: callable = None,
     ) -> None:
+        """
+        Initializes the Extended Kalman Filter with the given parameters.
+
+        Args:
+            x_0 (jnp.ndarray | float | int): Initial state estimate. If scalar, it is expanded to a 1D array (shape n x 1).
+            f (callable): Nonlinear state transition function, f(x, u).
+            h (callable): Nonlinear measurement function, h(x).
+            R (jnp.ndarray): Measurement noise covariance matrix (shape p x p).
+            Q (jnp.ndarray): Process noise covariance matrix (shape n x n).
+            Z (jnp.ndarray): Measurement noise vector (shape p x 1).
+            w_k (jnp.ndarray): Process noise vector (shape n x 1).
+            P_0 (jnp.ndarray): Initial error covariance matrix (shape n x n).
+            jaccobian_f (callable, optional): Jacobian of the state transition function, f(x, u). If not provided, it is computed numerically.
+            jaccobian_h (callable, optional): Jacobian of the measurement function, h(x). If not provided, it is computed numerically.
+
+        Raises:
+            Exception: If the initial state `x_0` is not of type `jnp.ndarray`, `float`, or `int`.
+        """
         if not isinstance(x_0, (jnp.ndarray, float, int)):
             raise Exception(
                 "The State input must be of type jnp.ndarray, float, or int"
@@ -367,21 +406,54 @@ class ExtendedKalmanFilter(KalmanFilter):
         self.h = h  # Nonlinear measurement function: h(x)
 
     def _set_none(self, u_k: jnp.ndarray = None) -> None:
+        """
+        Placeholder function for cases where Jacobians are precomputed and do not need updating.
+
+        Args:
+            u_k (jnp.ndarray, optional): Control input vector (m x 1). Defaults to None.
+        """
         pass
 
     def _jacobian(
         self, f: callable, x: jnp.ndarray, u: jnp.ndarray = None
     ) -> jnp.ndarray:
         """
-        Compute the full Jacobian of a vector-valued function f at x.
+        Computes the Jacobian of a vector-valued function f at x.
+
+        Args:
+            f (callable): Function to compute the Jacobian for.
+            x (jnp.ndarray): State vector (n x 1).
+            u (jnp.ndarray, optional): Control input vector (m x 1). Defaults to None.
+
+        Returns:
+            jnp.ndarray: Jacobian matrix of f evaluated at x (and u if provided).
         """
         jac_F = jacfwd(f)  # Forward-mode Jacobian
         return jnp.array(jac_F(x)) if u is None else jnp.array(jac_F(x, u))
 
     def _matrix_f(self, x, u):
+        """
+        Computes the Jacobian of the state transition function f(x, u).
+
+        Args:
+            x (jnp.ndarray): State vector (n x 1).
+            u (jnp.ndarray): Control input vector (m x 1).
+
+        Returns:
+            jnp.ndarray: Jacobian matrix of f (n x n).
+        """
         return self._jacobian(self.f, x, u)  # State transition Jacobian
 
     def _matrix_h(self, x):
+        """
+        Computes the Jacobian of the measurement function h(x).
+
+        Args:
+            x (jnp.ndarray): State vector (n x 1).
+
+        Returns:
+            jnp.ndarray: Jacobian matrix of h (p x n).
+        """
         return self._jacobian(self.h, x)  # Measurement Jacobian
 
     def _step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
@@ -389,15 +461,14 @@ class ExtendedKalmanFilter(KalmanFilter):
         Predicts the next state using the nonlinear system dynamics f and control input u_k.
 
         Args:
-            u_k: Control input vector (m x 1)
+            u_k (jnp.ndarray): Control input vector (m x 1).
 
         Returns:
-            Predicted state vector (n x 1)
+            jnp.ndarray: Predicted state vector (n x 1).
 
         Raises:
             RuntimeError: If an error occurs during the prediction.
         """
-
         try:
             self._set_matrix_f(u_k)
             self._set_matrix_h()
@@ -415,12 +486,12 @@ class ExtendedKalmanFilter(KalmanFilter):
         This function recomputes the linearization matrices A and H based on the current state.
 
         Args:
-            x_km: Noisy measurement vector (p x 1)
+            x_km (jnp.ndarray): Noisy measurement vector (p x 1).
 
         Returns:
-            A tuple containing:
-            - Corrected state estimate (n x 1)
-            - Updated error covariance matrix (n x n)
+            Tuple[jnp.ndarray, jnp.ndarray]:
+                - Corrected state estimate (n x 1).
+                - Updated error covariance matrix (n x n).
 
         Raises:
             RuntimeError: If an error occurs during state update.
