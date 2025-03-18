@@ -1,5 +1,5 @@
 import jax.numpy as jnp  # type: ignore
-from jax import jacfwd # type: ignore
+from jax import jacfwd  # type: ignore
 import gymnasium as gym  # type: ignore
 from sklearn.preprocessing import normalize  # type: ignore
 from keras.models import Sequential  # type: ignore
@@ -322,7 +322,9 @@ class KalmanFilter:
         except Exception as e:
             raise RuntimeError(f"Error in the update method: {e}") from e
 
+
 "########################################################################################### Extended Kalman Filter ###########################################################################################"
+
 
 class ExtendedKalmanFilter(KalmanFilter):
     def __init__(
@@ -427,15 +429,11 @@ class ExtendedKalmanFilter(KalmanFilter):
             # Recompute linearization at current state
             self.A = self._function_f(self.x_k)
             self.H = self._function_h(self.x_k)
-
-            measurements = self.h(x_km) + self.Z
-            x_k = self.x_k + self.K @ (measurements - self.H @ self.x_k)
+            x_k = self.x_k + self.K @ (x_km - self.h(self.x_k) + self.Z)
             p_k = (jnp.eye(self.K.shape[0]) - self.K @ self.H) @ self.P
             return x_k, p_k
         except Exception as e:
             raise RuntimeError(f"Error in EKF state and process update:{e}") from e
-
-
 
 
 "########################################################################################### Kalman Filter + RL ###########################################################################################"
