@@ -145,27 +145,22 @@ class KalmanFilter:
     Implements a discrete-time Kalman Filter for state estimation in linear dynamic systems.
 
     The filter operates in two stages:
-    1. Prediction - estimates the next state using system dynamics
-    2. Update - corrects estimates using noisy measurements
-
-    Maintains:
-    - State estimate (x_k)
-    - Error covariance matrix (P)
-    - Kalman gain (K) from last update
+    1. Prediction - estimates the next state using system dynamics.
+    2. Update - corrects estimates using noisy measurements.
 
     Attributes:
-        x_k (jnp.ndarray): Current state estimate vector (n x 1)
-        A (jnp.ndarray): State transition matrix (n x n)
-        B (jnp.ndarray): Control input matrix (n x m)
-        H (jnp.ndarray): Observation matrix (p x n)
-        C (jnp.ndarray): Output matrix for measurements (p x n)
-        R (jnp.ndarray): Measurement noise covariance matrix (p x p)
-        Q (jnp.ndarray): Process noise covariance matrix (n x n)
-        Z (jnp.ndarray): Measurement noise matrix (p x 1)
-        w_k (jnp.ndarray): Process noise vector (n x 1)
-        P (jnp.ndarray): Error covariance matrix (n x n)
-        P_0 (jnp.ndarray): Initial error covariance matrix (n x n)
-        K (jnp.ndarray): Kalman gain matrix from last update (n x p)
+        x_k (jnp.ndarray): Current state estimate vector (shape n x 1).
+        A (jnp.ndarray): State transition matrix (shape n x n).
+        B (jnp.ndarray): Control input matrix (shape n x m).
+        H (jnp.ndarray): Observation matrix (shape p x n).
+        C (jnp.ndarray): Output matrix for measurements (shape p x n).
+        R (jnp.ndarray): Measurement noise covariance matrix (shape p x p).
+        Q (jnp.ndarray): Process noise covariance matrix (shape n x n).
+        Z (jnp.ndarray): Measurement noise vector (shape p x 1).
+        w_k (jnp.ndarray): Process noise vector (shape n x 1).
+        P (jnp.ndarray): Error covariance matrix (shape n x n).
+        P_0 (jnp.ndarray): Initial error covariance matrix (shape n x n).
+        K (jnp.ndarray): Kalman gain matrix from last update (shape n x p).
     """
 
     def __init__(
@@ -185,18 +180,20 @@ class KalmanFilter:
         Initialize Kalman Filter with system parameters and initial state.
 
         Args:
-            x_0: Initial state estimate (n-dim vector)
-            A: State transition matrix (n x n)
-            B: Control input matrix (n x m)
-            H: Observation matrix (p x n)
-            C: Output matrix for measurements (p x n)
-            R: Measurement noise covariance (p x p)
-            Q: Process noise covariance (n x n)
-            Z: Measurement noise (p x 1)
-            w_k: Process noise vector (n x 1)
-            P_0: Initial error covariance (n x n)
-        """
+            x_0 (jnp.ndarray): Initial state estimate (n x 1).
+            A (jnp.ndarray): State transition matrix (n x n).
+            B (jnp.ndarray): Control input matrix (n x m).
+            H (jnp.ndarray): Observation matrix (p x n).
+            C (jnp.ndarray): Output matrix for measurements (p x n).
+            R (jnp.ndarray): Measurement noise covariance matrix (p x p).
+            Q (jnp.ndarray): Process noise covariance matrix (n x n).
+            Z (jnp.ndarray): Measurement noise vector (p x 1).
+            w_k (jnp.ndarray): Process noise vector (n x 1).
+            P_0 (jnp.ndarray): Initial error covariance matrix (n x n).
 
+        Raises:
+            RuntimeError: If any matrix or vector does not match the expected shape.
+        """
         self.x_0 = x_0.reshape((-1, 1))
         self.x_k = self.x_0
         self.A = A
@@ -209,23 +206,79 @@ class KalmanFilter:
         self.w_k = w_k
         self.P = P_0
         self.P_0 = P_0
+        assert self._verify_matrices()
+
+    def _verify_matrices(self):
+        """
+        Verify that all matrices and vectors have the correct shapes.
+
+        Returns:
+            bool: True if all shapes are valid.
+
+        Raises:
+            RuntimeError: If any matrix or vector does not match the expected shape.
+        """
+        x_0_shape = self.x_0.shape[0]
+        if self.A.shape[0] != self.A.shape[1] or self.A.shape[0] != x_0_shape:
+            raise RuntimeError(
+                f"The State transition matrix A must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.A.shape}!"
+            )
+        if self.B.shape[0] != x_0_shape:
+            raise RuntimeError(
+                f"The Control input matrix B must have the same number of rows as the initial state estimate ({x_0_shape}, m), got {self.B.shape}!"
+            )
+        if self.H.shape[1] != x_0_shape:
+            raise RuntimeError(
+                f"The Observation matrix H must have the same number of columns as the initial state estimate ({self.H.shape[0]}, {x_0_shape}), got {self.H.shape}!"
+            )
+        if self.C.shape != self.H.shape:
+            raise RuntimeError(
+                f"The Output matrix for measurements C must have the same shape as the Observation matrix ({self.H.shape}), got {self.C.shape}!"
+            )
+        if self.R.shape[0] != self.R.shape[1] or self.R.shape[0] != self.C.shape[0]:
+            raise RuntimeError(
+                f"The Measurement noise covariance R must be a square matrix with shape ({self.C.shape[0]}, {self.C.shape[0]}), got {self.R.shape}!"
+            )
+        if self.Q.shape[0] != self.Q.shape[1] or self.Q.shape[0] != x_0_shape:
+            raise RuntimeError(
+                f"The Process noise covariance Q must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.Q.shape}!"
+            )
+        if self.Z.shape != (self.H.shape[0], 1):
+            raise RuntimeError(
+                f"The Measurement noise Z must be a column vector with shape ({self.H.shape[0]}, 1), got {self.Z.shape}!"
+            )
+        if self.w_k.shape != (self.A.shape[0], 1):
+            raise RuntimeError(
+                f"The Process noise vector w_k must be a column vector with shape ({x_0_shape}, 1), got {self.w_k.shape}!"
+            )
+        if self.P_0.shape != self.A.shape:
+            raise RuntimeError(
+                f"The Initial error covariance P_0 must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.P_0.shape}!"
+            )
+        return True
 
     def reset(self) -> None:
-        """Reset filter to initial state and covariance"""
+        """
+        Reset the filter to the initial state and covariance.
+
+        This is useful when reusing the filter for a new sequence of data.
+        """
         self.x_k = self.x_0
         self.P = self.P_0
 
     def _step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
         """
-        Predict next state using system dynamics and control input.
+        Predict the next state using system dynamics and control input.
 
         Args:
-            u_k: Control input vector (m,1)
+            u_k (jnp.ndarray): Control input vector (m x 1).
 
         Returns:
-            Predicted state vector (n,)
-        """
+            jnp.ndarray: Predicted state vector (n x 1).
 
+        Raises:
+            RuntimeError: If an error occurs during state prediction.
+        """
         try:
             x_k = self.x_k.reshape((-1, 1))
             new_x_k = self.A @ x_k + self.B @ u_k + self.w_k
@@ -235,47 +288,54 @@ class KalmanFilter:
 
     def _process_covariance(self) -> jnp.ndarray:
         """
-        Update error covariance matrix using system dynamics and process noise.
+        Update the error covariance matrix using system dynamics and process noise.
 
         Returns:
-            Updated covariance matrix (n x n)
-        """
+            jnp.ndarray: Updated covariance matrix (n x n).
 
+        Raises:
+            RuntimeError: If an error occurs during covariance update.
+        """
         try:
             new_P = self.A @ self.P @ self.A.T + self.Q
             return new_P
         except Exception as e:
-            raise RuntimeError(f"Error in the proccess covariance function: {e}") from e
+            raise RuntimeError(f"Error in the process covariance function: {e}") from e
 
     def _kalman_function(self) -> jnp.ndarray:
         """
-        Compute optimal Kalman gain using current covariance estimates.
+        Compute the optimal Kalman gain using current covariance estimates.
 
         Returns:
-            Kalman gain matrix (n x p)
-        """
+            jnp.ndarray: Kalman gain matrix (n x p).
 
+        Raises:
+            RuntimeError: If an error occurs during Kalman gain computation.
+        """
         try:
             x = self.P @ self.H.T
             K = x @ jnp.linalg.inv(self.H @ x + self.R)
             K = jnp.nan_to_num(K, nan=0)
             return K
         except Exception as e:
-            raise RuntimeError(f"Error in the kalman gain function: {e}") from e
+            raise RuntimeError(f"Error in the Kalman gain function: {e}") from e
 
     def _current_state_and_process(
         self, x_km: jnp.ndarray
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """
-        Update state estimate using measurement and Kalman gain.
+        Update the state estimate using a measurement and the Kalman gain.
 
         Args:
-            x_km: Noisy measurement vector (p x 1)
+            x_km (jnp.ndarray): Noisy measurement vector (shape p x 1).
 
         Returns:
-            Tuple containing:
-            - Corrected state estimate (n x 1)
-            - Updated error covariance (n x n)
+            Tuple[jnp.ndarray, jnp.ndarray]:
+                - Corrected state estimate (shape n x 1).
+                - Updated error covariance matrix (shape n x n).
+
+        Raises:
+            RuntimeError: If an error occurs during state update.
         """
         try:
             measurements = self.C @ x_km.reshape((-1, 1)) + self.Z
@@ -284,20 +344,28 @@ class KalmanFilter:
             return x_k, p_k
         except Exception as e:
             raise RuntimeError(
-                f"Error in the new state and proccess calculation function, the error: {e}"
+                f"Error in the new state and process calculation function: {e}"
             ) from e
 
     def predict(self, u_k: jnp.ndarray) -> jnp.ndarray:
         """
-        Predicts the next state based on the control input and process model.
+        Predict the next state based on the control input and process model.
 
-        Parameters:
-            u_k (ndarray): Control input vector of shape (m, 1).
+        Args:
+            u_k (jnp.ndarray): Control input vector (m x 1).
 
         Returns:
-            ndarray: Updated state estimate vector of shape (n,).
+            jnp.ndarray: Updated state estimate vector (n x 1).
+
+        Raises:
+            RuntimeError: If the control input vector has an invalid shape or an error occurs during prediction.
         """
+        if u_k.shape != (self.B.shape[1], 1):
+            raise RuntimeError(
+                f"The Control input vector u_k must be a column vector with shape ({self.B.shape[1]}, 1), got {u_k.shape}!"
+            )
         try:
+            u_k = u_k.reshape((-1, 1))
             self.x_k = self._step_estimation(u_k).squeeze()
             self.P = self._process_covariance()
             return self.x_k
@@ -306,14 +374,21 @@ class KalmanFilter:
 
     def update(self, x_km: jnp.ndarray) -> jnp.ndarray:
         """
-        Updates the state estimate based on the new measurement.
+        Update the state estimate based on the new measurement.
 
-        Parameters:
-            x_km (ndarray): Measured state vector of shape (n, 1).
+        Args:
+            x_km (jnp.ndarray): Measured state vector (shape n x 1).
 
         Returns:
-            ndarray: Updated state estimate vector of shape (n,).
+            jnp.ndarray: Updated state estimate vector (shape n x 1).
+
+        Raises:
+            RuntimeError: If the measurement vector has an invalid shape or an error occurs during update.
         """
+        if x_km.shape != (self.x_0.shape[0], 1):
+            raise RuntimeError(
+                f"The Measured state vector x_km must be a column vector with shape ({self.x_0.shape[0]}, 1), got {x_km.shape}!"
+            )
         try:
             self.x_k = self.x_k.reshape((-1, 1))
             self.K = self._kalman_function()
@@ -339,11 +414,11 @@ class ExtendedKalmanFilter(KalmanFilter):
         h (callable): Nonlinear measurement function, h(x), where:
             - x is the state vector (n x 1).
             - Returns the predicted measurement vector (p x 1).
-        R (jnp.ndarray): Measurement noise covariance matrix (shape p x p).
-        Q (jnp.ndarray): Process noise covariance matrix (shape n x n).
-        Z (jnp.ndarray): Measurement noise vector (shape p x 1).
-        w_k (jnp.ndarray): Process noise vector (shape n x 1).
-        P (jnp.ndarray): Error covariance matrix (shape n x n).
+        R (jnp.ndarray): Measurement noise covariance matrix (p x p).
+        Q (jnp.ndarray): Process noise covariance matrix (n x n).
+        Z (jnp.ndarray): Measurement noise vector (p x 1).
+        w_k (jnp.ndarray): Process noise vector (n x 1).
+        P (jnp.ndarray): Error covariance matrix (n x n).
         _function_f (callable): Jacobian of the state transition function, f(x, u).
         _function_h (callable): Jacobian of the measurement function, h(x).
     """
@@ -404,7 +479,41 @@ class ExtendedKalmanFilter(KalmanFilter):
             self._set_matrix_h = self._matrix_h
 
         self.h = h  # Nonlinear measurement function: h(x)
+        assert self._verify_matrices()
+    
+    def _verify_matrices(self):
+        """
+        Verify that all matrices and vectors have the correct shapes.
 
+        Returns:
+            bool: True if all shapes are valid.
+
+        Raises:
+            RuntimeError: If any matrix or vector does not match the expected shape.
+        """
+        x_0_shape = self.x_0.shape[0]
+        if self.R.shape[0] != self.R.shape[1] or self.R.shape[0] != self.H.shape[0]:
+            raise RuntimeError(
+                f"The Measurement noise covariance R must be a square matrix with shape ({self.H.shape[0]}, {self.H.shape[0]}), got {self.R.shape}!"
+            )
+        if self.Q.shape[0] != self.Q.shape[1] or self.Q.shape[0] != x_0_shape:
+            raise RuntimeError(
+                f"The Process noise covariance Q must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.Q.shape}!"
+            )
+        if self.Z.shape != (self.H.shape[0], 1):
+            raise RuntimeError(
+                f"The Measurement noise Z must be a column vector with shape ({self.H.shape[0]}, 1), got {self.Z.shape}!"
+            )
+        if self.w_k.shape != (x_0_shape, 1):
+            raise RuntimeError(
+                f"The Process noise vector w_k must be a column vector with shape ({x_0_shape}, 1), got {self.w_k.shape}!"
+            )
+        if self.P_0.shape != (x_0_shape, x_0_shape):
+            raise RuntimeError(
+                f"The Initial error covariance P_0 must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.P_0.shape}!"
+            )
+        return True
+    
     def _set_none(self, u_k: jnp.ndarray = None) -> None:
         """
         Placeholder function for cases where Jacobians are precomputed and do not need updating.
