@@ -161,6 +161,8 @@ class KalmanFilter:
         P (jnp.ndarray): Error covariance matrix (shape n x n).
         P_0 (jnp.ndarray): Initial error covariance matrix (shape n x n).
         K (jnp.ndarray): Kalman gain matrix from last update (shape n x p).
+
+
     """
 
     def __init__(
@@ -206,7 +208,8 @@ class KalmanFilter:
         self.w_k = w_k
         self.P = P_0
         self.P_0 = P_0
-        assert self._verify_matrices()
+        if type(self) is KalmanFilter:
+            assert self._verify_matrices()
 
     def _verify_matrices(self):
         """
@@ -221,7 +224,7 @@ class KalmanFilter:
         x_0_shape = self.x_0.shape[0]
         if self.A.shape[0] != self.A.shape[1] or self.A.shape[0] != x_0_shape:
             raise RuntimeError(
-                f"The State transition matrix A must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.A.shape}!"
+                f"The State transition matrix A must be a square matrix with shape ({x_0_shape}, {x_0_shape}) as the initial state estimate, got {self.A.shape}!"
             )
         if self.B.shape[0] != x_0_shape:
             raise RuntimeError(
@@ -360,7 +363,7 @@ class KalmanFilter:
         Raises:
             RuntimeError: If the control input vector has an invalid shape or an error occurs during prediction.
         """
-        if u_k.shape != (self.B.shape[1], 1):
+        if type(self) is KalmanFilter and u_k.shape != (self.B.shape[1], 1):
             raise RuntimeError(
                 f"The Control input vector u_k must be a column vector with shape ({self.B.shape[1]}, 1), got {u_k.shape}!"
             )
@@ -374,20 +377,20 @@ class KalmanFilter:
 
     def update(self, x_km: jnp.ndarray) -> jnp.ndarray:
         """
-        Update the state estimate based on the new measurement.
+        Update the state estimate based on the new measurement and the Kalman Gain matrix K (n x p).
 
         Args:
-            x_km (jnp.ndarray): Measured state vector (shape n x 1).
+            x_km (jnp.ndarray): Measured state vector (n x 1).
 
         Returns:
-            jnp.ndarray: Updated state estimate vector (shape n x 1).
+            jnp.ndarray: Updated state estimate vector (n x 1).
 
         Raises:
             RuntimeError: If the measurement vector has an invalid shape or an error occurs during update.
         """
-        if x_km.shape != (self.x_0.shape[0], 1):
+        if type(self) is KalmanFilter and x_km.shape != (self.C.shape[1], 1):
             raise RuntimeError(
-                f"The Measured state vector x_km must be a column vector with shape ({self.x_0.shape[0]}, 1), got {x_km.shape}!"
+                f"The Measured state vector x_km must be a column vector with shape ({self.C.shape[1]}, 1), got {x_km.shape}!"
             )
         try:
             self.x_k = self.x_k.reshape((-1, 1))
@@ -480,7 +483,7 @@ class ExtendedKalmanFilter(KalmanFilter):
 
         self.h = h  # Nonlinear measurement function: h(x)
         assert self._verify_matrices()
-    
+
     def _verify_matrices(self):
         """
         Verify that all matrices and vectors have the correct shapes.
@@ -513,7 +516,7 @@ class ExtendedKalmanFilter(KalmanFilter):
                 f"The Initial error covariance P_0 must be a square matrix with shape ({x_0_shape}, {x_0_shape}), got {self.P_0.shape}!"
             )
         return True
-    
+
     def _set_none(self, u_k: jnp.ndarray = None) -> None:
         """
         Placeholder function for cases where Jacobians are precomputed and do not need updating.
