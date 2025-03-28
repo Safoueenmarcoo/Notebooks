@@ -1,22 +1,7 @@
 import jax.numpy as jnp  # type: ignore
-from jax import jacfwd  # type: ignore
-import gymnasium as gym  # type: ignore
-from sklearn.preprocessing import normalize  # type: ignore
-from keras.models import Sequential  # type: ignore
-from keras.layers import Dense, Input, Dropout  # type: ignore
-from keras.optimizers import Adam  # type: ignore
-from collections import deque
-from keras.callbacks import TensorBoard  # type: ignore
-import tensorflow as tf  # type: ignore
-from time import time
-from tqdm import tqdm  # type: ignore
-import numpy as np  # type: ignore
-from gymnasium.spaces import Discrete  # type: ignore
-import random
-from stable_baselines3.common.callbacks import BaseCallback  # type: ignore
-from typing import Any, Tuple, Optional, Union, List, Dict
 from jax import jit as jjit  # type: ignore
 from numba import jit as njit  # type: ignore
+
 
 "########################################################################################### Control ###########################################################################################"
 
@@ -113,6 +98,7 @@ def is_observable(A: jnp.ndarray, C: jnp.ndarray) -> bool:
 
 
 "########################################################################################### Kalman Filter ###########################################################################################"
+from typing import Any, Tuple, Optional, Union, List, Dict
 
 
 @njit(nopython=True)
@@ -283,8 +269,7 @@ class KalmanFilter:
             RuntimeError: If an error occurs during state prediction.
         """
         try:
-            x_k = self.x_k.reshape((-1, 1))
-            new_x_k = self.A @ x_k + self.B @ u_k + self.w_k
+            new_x_k = self.A @ self.x_k + self.B @ u_k + self.w_k
             return new_x_k
         except Exception as e:
             raise RuntimeError(f"Error in the step estimation function: {e}") from e
@@ -369,7 +354,7 @@ class KalmanFilter:
             )
         try:
             u_k = u_k.reshape((-1, 1))
-            self.x_k = self._step_estimation(u_k).squeeze()
+            self.x_k = self._step_estimation(u_k)
             self.P = self._process_covariance()
             return self.x_k
         except Exception as e:
@@ -393,10 +378,9 @@ class KalmanFilter:
                 f"The Measured state vector x_km must be a column vector with shape ({self.C.shape[1]}, 1), got {x_km.shape}!"
             )
         try:
-            self.x_k = self.x_k.reshape((-1, 1))
             self.K = self._kalman_function()
             self.x_k, self.P = self._current_state_and_process(x_km)
-            return self.x_k.squeeze()
+            return self.x_k
         except Exception as e:
             raise RuntimeError(f"Error in the update method: {e}") from e
 
@@ -540,6 +524,8 @@ class ExtendedKalmanFilter(KalmanFilter):
         Returns:
             jnp.ndarray: Jacobian matrix of f evaluated at x (and u if provided).
         """
+        from jax import jacfwd
+
         jac_F = jacfwd(f)  # Forward-mode Jacobian
         return jnp.array(jac_F(x)) if u is None else jnp.array(jac_F(x, u))
 
@@ -621,6 +607,8 @@ class ExtendedKalmanFilter(KalmanFilter):
 
 "########################################################################################### Kalman Filter + RL ###########################################################################################"
 
+import gymnasium as gym
+
 
 class KalmanRLWrapper(gym.Env):
     """
@@ -696,6 +684,8 @@ class HMM:
         gamma (jnp.ndarray): Posterior probabilities matrix.
         theta (jnp.ndarray): Intermediate matrix for Baum-Welch algorithm.
     """
+
+    from sklearn.preprocessing import normalize
 
     def __init__(
         self,
@@ -943,6 +933,8 @@ class HMM:
         Prints:
             The probabilities of being in the most and least likely states at the specified position.
         """
+        from sklearn.preprocessing import normalize
+
         self.forward_pass()
         self.backward_pass()
         self.gamma = normalize(self.beta * self.alpha, "l1", axis=0)
@@ -963,6 +955,8 @@ class HMM:
         Returns:
             None
         """
+        from sklearn.preprocessing import normalize
+
         new_transition = self.transition_matrix
         new_emission = self.emission_matrix
         x = 0
@@ -1181,6 +1175,8 @@ class ContinuousHMM(HMM):
         Returns:
             jnp.ndarray: The emission probabilities matrix.
         """
+        from sklearn.preprocessing import normalize
+
         emission_matrix = jnp.zeros((self.N, self.observations.shape[1]))
         for state in range(self.N):
             for obs in range(self.observations.shape[1]):
@@ -1204,6 +1200,8 @@ class ContinuousHMM(HMM):
         Returns:
             None
         """
+        from sklearn.preprocessing import normalize
+
         new_transition = self.transition_matrix
         x = 0
         while True:
@@ -1257,6 +1255,8 @@ class ContinuousHMM(HMM):
 
 
 "########################################################################################### Logging CallBack ###########################################################################################"
+
+from stable_baselines3.common.callbacks import BaseCallback  # type: ignore
 
 
 class Monitor(BaseCallback):
@@ -1325,7 +1325,7 @@ class Monitor(BaseCallback):
             self.current_reward = 0
             self.current_length = 0
             if self.verbose > 0:
-                avg_reward = np.mean(self.episode_rewards[-10:])
+                avg_reward = jnp.mean(self.episode_rewards[-10:])
                 print(
                     f"Step {self.num_timesteps} | Avg Reward: {avg_reward:.2f} | Current Length: {self.current_length}"
                 )
@@ -1333,6 +1333,9 @@ class Monitor(BaseCallback):
 
 
 "########################################################################################### DQN ###########################################################################################"
+
+
+from keras.callbacks import TensorBoard  # type: ignore
 
 
 class ModifiedTensorBoard(TensorBoard):
@@ -1344,6 +1347,8 @@ class ModifiedTensorBoard(TensorBoard):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        import tensorflow as tf  # type: ignore
+
         self.step = 1
         self._train_dir = self.log_dir
         self._train_step = self.step
@@ -1385,6 +1390,8 @@ class ModifiedTensorBoard(TensorBoard):
         Args:
             **stats (Any): Key-value pairs of statistics to log.
         """
+        import tensorflow as tf
+
         with self.writer.as_default():
             for name, value in stats.items():
                 tf.summary.scalar(name, value, step=self.step)
@@ -1445,6 +1452,10 @@ class Agent:
             update_every (int): The frequency (in episodes) at which the target model is updated.
             aggregate_stats_every (int): The frequency (in episodes) at which statistics are logged.
         """
+
+        from collections import deque
+        from time import time
+
         self.env = env
         self.episodes = episodes
         self.epsilon_decay = epsilon_decay
@@ -1463,9 +1474,7 @@ class Agent:
             log_dir="logs/{}-{}".format("agent", int(time()))
         )
 
-    def create_model(
-        self, input_shape: Tuple[int, ...], output_shape: int
-    ) -> Sequential:
+    def create_model(self, input_shape: Tuple[int, ...], output_shape: int):
         """
         Creates a neural network model for the agent.
 
@@ -1476,6 +1485,10 @@ class Agent:
         Returns:
             Sequential: A compiled Keras model.
         """
+        from keras.layers import Dense, Input, Dropout  # type: ignore
+        from keras.optimizers import Adam  # type: ignore
+        from keras.models import Sequential  # type: ignore
+
         model = Sequential()
         model.add(Input(shape=input_shape))
         model.add(Dense(24, activation="relu"))
@@ -1505,6 +1518,8 @@ class Agent:
         Args:
             final_state (bool): Whether the current episode has ended.
         """
+        import random
+
         if len(self.replay_memory) < self.min_train_size:
             return
         minibatch = random.sample(self.replay_memory, self.minibatch_size)
@@ -1564,6 +1579,12 @@ class Agent:
         """
         epsilon = 1
         ep_rewards = []
+
+        from tqdm import tqdm
+        import time
+        from gymnasium.spaces import Discrete
+        import numpy as np
+
         for episode in tqdm(range(1, self.episodes + 1), ascii=True, unit="episodes"):
             self.tensorboard.step = episode
             episode_reward = 0
