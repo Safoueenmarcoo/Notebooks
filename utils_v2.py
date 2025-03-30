@@ -1,3 +1,7 @@
+from keras.callbacks import TensorBoard  # type: ignore
+from stable_baselines3.common.callbacks import BaseCallback  # type: ignore
+import gymnasium as gym
+from typing import Any, Tuple, Optional, Union, List, Dict
 import jax.numpy as jnp  # type: ignore
 from jax import jit as jjit  # type: ignore
 from numba import jit as njit  # type: ignore
@@ -98,7 +102,6 @@ def is_observable(A: jnp.ndarray, C: jnp.ndarray) -> bool:
 
 
 "########################################################################################### Kalman Filter ###########################################################################################"
-from typing import Any, Tuple, Optional, Union, List, Dict
 
 
 @njit(nopython=True)
@@ -606,8 +609,6 @@ class ExtendedKalmanFilter(KalmanFilter):
 
 
 "########################################################################################### Kalman Filter + RL ###########################################################################################"
-
-import gymnasium as gym
 
 
 class KalmanRLWrapper(gym.Env):
@@ -1256,8 +1257,6 @@ class ContinuousHMM(HMM):
 
 "########################################################################################### Logging CallBack ###########################################################################################"
 
-from stable_baselines3.common.callbacks import BaseCallback  # type: ignore
-
 
 class Monitor(BaseCallback):
     """
@@ -1333,9 +1332,6 @@ class Monitor(BaseCallback):
 
 
 "########################################################################################### DQN ###########################################################################################"
-
-
-from keras.callbacks import TensorBoard  # type: ignore
 
 
 class ModifiedTensorBoard(TensorBoard):
