@@ -198,9 +198,9 @@ class KalmanFilter:
         self.P = P_0
         self.P_0 = P_0
         if type(self) is KalmanFilter:
-            assert self._verify_matrices()
+            assert self.__verify_matrices()
 
-    def _verify_matrices(self):
+    def __verify_matrices(self):
         """
         Verify that all matrices and vectors have the correct shapes.
 
@@ -409,8 +409,8 @@ class ExtendedKalmanFilter(KalmanFilter):
         Z (jnp.ndarray): Measurement noise vector (p x 1).
         w_k (jnp.ndarray): Process noise vector (n x 1).
         P (jnp.ndarray): Error covariance matrix (n x n).
-        _function_f (callable): Jacobian of the state transition function, f(x, u).
-        _function_h (callable): Jacobian of the measurement function, h(x).
+        __function_f (callable): Jacobian of the state transition function, f(x, u).
+        __function_h (callable): Jacobian of the measurement function, h(x).
     """
 
     def __init__(
@@ -452,26 +452,26 @@ class ExtendedKalmanFilter(KalmanFilter):
         x_0 = jnp.expand_dims(x_0, axis=-1) if type(x_0) in (int, float) else x_0
         super().__init__(x_0, None, None, None, None, R, Q, Z, w_k, P_0)
         if jaccobian_f is not None:
-            self._function_f = jaccobian_f
-            self._set_matrix_f = self._set_none
-            self.A = self._function_f(self.x_k)
+            self.__function_f = jaccobian_f
+            self.__set_matrix_f = self.__set_none
+            self.A = self.__function_f(self.x_k)
 
         else:
-            self._set_matrix_f = self._matrix_f
+            self.__set_matrix_f = self.__matrix_f
 
         self.f = f  # Nonlinear state transition function: f(x, u)
 
         if jaccobian_h is not None:
-            self._function_h = jaccobian_h
-            self._set_matrix_h = self._set_none
-            self.H = self._function_h(self.x_k)
+            self.__function_h = jaccobian_h
+            self.__set_matrix_h = self.__set_none
+            self.H = self.__function_h(self.x_k)
         else:
-            self._set_matrix_h = self._matrix_h
+            self.__set_matrix_h = self.__matrix_h
 
         self.h = h  # Nonlinear measurement function: h(x)
-        assert self._verify_matrices()
+        assert self.__verify_matrices()
 
-    def _verify_matrices(self):
+    def __verify_matrices(self):
         """
         Verify that all matrices and vectors have the correct shapes.
 
@@ -504,7 +504,7 @@ class ExtendedKalmanFilter(KalmanFilter):
             )
         return True
 
-    def _set_none(self, u_k: jnp.ndarray = None) -> None:
+    def __set_none(self, u_k: jnp.ndarray = None) -> None:
         """
         Placeholder function for cases where Jacobians are precomputed and do not need updating.
 
@@ -513,7 +513,7 @@ class ExtendedKalmanFilter(KalmanFilter):
         """
         pass
 
-    def _jacobian(
+    def __jacobian(
         self, f: callable, x: jnp.ndarray, u: jnp.ndarray = None
     ) -> jnp.ndarray:
         """
@@ -532,7 +532,7 @@ class ExtendedKalmanFilter(KalmanFilter):
         jac_F = jacfwd(f)  # Forward-mode Jacobian
         return jnp.array(jac_F(x)) if u is None else jnp.array(jac_F(x, u))
 
-    def _matrix_f(self, x, u):
+    def __matrix_f(self, x, u):
         """
         Computes the Jacobian of the state transition function f(x, u).
 
@@ -543,9 +543,9 @@ class ExtendedKalmanFilter(KalmanFilter):
         Returns:
             jnp.ndarray: Jacobian matrix of f (n x n).
         """
-        return self._jacobian(self.f, x, u)  # State transition Jacobian
+        return self.__jacobian(self.f, x, u)  # State transition Jacobian
 
-    def _matrix_h(self, x):
+    def __matrix_h(self, x):
         """
         Computes the Jacobian of the measurement function h(x).
 
@@ -555,7 +555,7 @@ class ExtendedKalmanFilter(KalmanFilter):
         Returns:
             jnp.ndarray: Jacobian matrix of h (p x n).
         """
-        return self._jacobian(self.h, x)  # Measurement Jacobian
+        return self.__jacobian(self.h, x)  # Measurement Jacobian
 
     def _step_estimation(self, u_k: jnp.ndarray) -> jnp.ndarray:
         """
@@ -571,8 +571,8 @@ class ExtendedKalmanFilter(KalmanFilter):
             RuntimeError: If an error occurs during the prediction.
         """
         try:
-            self._set_matrix_f(u_k)
-            self._set_matrix_h()
+            self.__set_matrix_f(u_k)
+            self.__set_matrix_h()
             new_x_k = self.f(self.x_k, u_k) + self.w_k
             return new_x_k
         except Exception as e:
@@ -599,8 +599,8 @@ class ExtendedKalmanFilter(KalmanFilter):
         """
         try:
             # Recompute linearization at current state
-            self.A = self._function_f(self.x_k)
-            self.H = self._function_h(self.x_k)
+            self.A = self.__function_f(self.x_k)
+            self.H = self.__function_h(self.x_k)
             x_k = self.x_k + self.K @ (x_km - self.h(self.x_k) + self.Z)
             p_k = (jnp.eye(self.K.shape[0]) - self.K @ self.H) @ self.P
             return x_k, p_k
@@ -660,7 +660,7 @@ class KalmanRLWrapper(gym.Env):
         action = -1 if action == 0 else 1
         u_k = jnp.array([[action]])
         self.kf.predict(u_k)
-        corrected_obs = self.kf.update(noisy_obs)
+        corrected_obs = self.kf.update(noisy_obs.reshape(noisy_obs.shape[0], 1))
         return corrected_obs, reward, done, truncuated, info
 
 
@@ -691,7 +691,7 @@ class HMM:
     def __init__(
         self,
         observations: jnp.ndarray,
-        labels: Union[List[Any], jnp.ndarray],
+        labels: Union[List[str], jnp.ndarray],
         transition_matrix: jnp.ndarray,
         emission_matrix: jnp.ndarray,
         initial_state: Optional[jnp.ndarray] = None,
