@@ -1,10 +1,18 @@
 from keras.callbacks import TensorBoard  # type: ignore
 from stable_baselines3.common.callbacks import BaseCallback  # type: ignore
-import gymnasium as gym
+from jax import jacfwd  # type: ignore
+import gymnasium as gym  # type: ignore
 from typing import Any, Tuple, Optional, Union, List, Dict
 import jax.numpy as jnp  # type: ignore
 from jax import jit as jjit  # type: ignore
 from numba import jit as njit  # type: ignore
+import numpy as np  # type: ignore
+from scipy.signal import convolve2d  # type: ignore
+from sklearn.preprocessing import normalize  # type: ignore
+import tensorflow as tf  # type: ignore
+from tqdm import tqdm  # type: ignore
+import time
+from gymnasium.spaces import Discrete  # type: ignore
 
 
 "########################################################################################### Control ###########################################################################################"
@@ -527,7 +535,6 @@ class ExtendedKalmanFilter(KalmanFilter):
         Returns:
             jnp.ndarray: Jacobian matrix of f evaluated at x (and u if provided).
         """
-        from jax import jacfwd
 
         jac_F = jacfwd(f)  # Forward-mode Jacobian
         return jnp.array(jac_F(x)) if u is None else jnp.array(jac_F(x, u))
@@ -685,8 +692,6 @@ class HMM:
         gamma (jnp.ndarray): Posterior probabilities matrix.
         theta (jnp.ndarray): Intermediate matrix for Baum-Welch algorithm.
     """
-
-    from sklearn.preprocessing import normalize
 
     def __init__(
         self,
@@ -934,7 +939,6 @@ class HMM:
         Prints:
             The probabilities of being in the most and least likely states at the specified position.
         """
-        from sklearn.preprocessing import normalize
 
         self.forward_pass()
         self.backward_pass()
@@ -956,7 +960,6 @@ class HMM:
         Returns:
             None
         """
-        from sklearn.preprocessing import normalize
 
         new_transition = self.transition_matrix
         new_emission = self.emission_matrix
@@ -1176,7 +1179,6 @@ class ContinuousHMM(HMM):
         Returns:
             jnp.ndarray: The emission probabilities matrix.
         """
-        from sklearn.preprocessing import normalize
 
         emission_matrix = jnp.zeros((self.N, self.observations.shape[1]))
         for state in range(self.N):
@@ -1201,7 +1203,6 @@ class ContinuousHMM(HMM):
         Returns:
             None
         """
-        from sklearn.preprocessing import normalize
 
         new_transition = self.transition_matrix
         x = 0
@@ -1331,6 +1332,102 @@ class Monitor(BaseCallback):
         return True
 
 
+"########################################################################################### Optical Flow ###########################################################################################"
+
+
+def compute_gradients_1P(image1, image2):
+    """
+    Compute spatial and temporal gradients: Ix, Iy, It.
+    """
+    # Spatial gradients (Ix, Iy)
+    Ix = np.zeros_like(image1)
+    Iy = np.zeros_like(image1)
+    Ix[:, 1:] = image1[:, 1:] - image1[:, :-1]  # I(x) - I(x-1)
+    Iy[1:, :] = image1[1:, :] - image1[:-1, :]  # I(y) - I(y-1)
+
+    # Temporal gradient (It)
+    It = image2 - image1
+
+    return Ix, Iy, It
+
+
+def compute_gradients_2P(image1, image2):
+    """
+    Compute spatial and temporal gradients: Ix, Iy, It.
+    """
+    # Spatial gradients (Ix, Iy)
+    Ix = np.zeros_like(image1)
+    Iy = np.zeros_like(image1)
+    Ix[:, 1:-1] = (image1[:, 2:] - image1[:, :-2]) / 2  # I(x+1) - I(x-1)
+    Iy[1:-1, :] = (image1[2:, :] - image1[:-2, :]) / 2  # I(y+1) - I(y-1)
+
+    # Temporal gradient (It)
+    It = image2 - image1
+
+    return Ix, Iy, It
+
+
+def compute_gradients_sobel(image1, image2):
+    """Sobel operator from scratch (3x3 kernel)"""
+    kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+
+    kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+
+    Ix = convolve2d(image1, kernel_x, mode="same", boundary="symm")
+    Iy = convolve2d(image1, kernel_y, mode="same", boundary="symm")
+
+    # Temporal gradient (It)
+    It = image2 - image1
+
+    return Ix, Iy, It
+
+
+def lucas_kanade(image1, image2, type="1P", window_size=5):
+    """
+    Compute optical flow using Lucas-Kanade method.
+    """
+    if type == "1P":
+        Ix, Iy, It = compute_gradients_1P(image1, image2)
+    elif type == "2P":
+        Ix, Iy, It = compute_gradients_2P(image1, image2)
+    elif type == "sobel":
+        Ix, Iy, It = compute_gradients_sobel(image1, image2)
+    else:
+        raise ValueError(
+            "This gradient type doesn't exist, choose from: \n-'1P': 1-Pixel difference \n-'2P': 2-Pixels difference \n-'sobel': Sobel gradient"
+        )
+
+    half_window = window_size // 2
+    flow_u = np.zeros_like(image1)
+    flow_v = np.zeros_like(image1)
+
+    # Iterate over each pixel
+    for i in range(half_window, image1.shape[0] - half_window):
+        for j in range(half_window, image1.shape[1] - half_window):
+            # Extract window of gradients
+            Ix_window = Ix[
+                i - half_window : i + half_window + 1,
+                j - half_window : j + half_window + 1,
+            ].flatten()
+            Iy_window = Iy[
+                i - half_window : i + half_window + 1,
+                j - half_window : j + half_window + 1,
+            ].flatten()
+            It_window = It[
+                i - half_window : i + half_window + 1,
+                j - half_window : j + half_window + 1,
+            ].flatten()
+
+            # Formulate A and b
+            a = np.stack((Ix_window, Iy_window), axis=-1)
+            b = -It_window
+
+            # Solve least squares problem: x = (A^T A)^(-1) A^T b
+            flow_u[i, j], flow_v[i, j] = np.linalg.lstsq(a, b, rcond=None)[0]
+
+    return flow_u, flow_v
+
+
 "########################################################################################### DQN ###########################################################################################"
 
 
@@ -1386,7 +1483,6 @@ class ModifiedTensorBoard(TensorBoard):
         Args:
             **stats (Any): Key-value pairs of statistics to log.
         """
-        import tensorflow as tf
 
         with self.writer.as_default():
             for name, value in stats.items():
@@ -1575,11 +1671,6 @@ class Agent:
         """
         epsilon = 1
         ep_rewards = []
-
-        from tqdm import tqdm
-        import time
-        from gymnasium.spaces import Discrete
-        import numpy as np
 
         for episode in tqdm(range(1, self.episodes + 1), ascii=True, unit="episodes"):
             self.tensorboard.step = episode
