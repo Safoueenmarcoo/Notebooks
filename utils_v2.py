@@ -1382,10 +1382,16 @@ def compute_gradients_sobel(image1, image2):
     return Ix, Iy, It
 
 
-def lucas_kanade(image1, image2, type="1P", window_size=5):
+def lucas_kanade(
+    image1: jnp.ndarray, image2: jnp.ndarray, type: str = "1P", window_size: int = 5
+):
     """
     Compute optical flow using Lucas-Kanade method.
     """
+    if image1.shape != image2.shape:
+        raise ValueError(
+            f"Images must have the same shape, but got {image1.shape} and {image2.shape}"
+        )
     if type == "1P":
         Ix, Iy, It = compute_gradients_1P(image1, image2)
     elif type == "2P":
