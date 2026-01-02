@@ -13,6 +13,7 @@ import tensorflow as tf  # type: ignore
 from tqdm import tqdm  # type: ignore
 import time
 from gymnasium.spaces import Discrete  # type: ignore
+import warnings  # type: ignore
 
 
 "########################################################################################### Control ###########################################################################################"
@@ -1335,101 +1336,66 @@ class Monitor(BaseCallback):
 "########################################################################################### Optical Flow ###########################################################################################"
 
 
-def compute_gradients_1P(image1, image2):
-    """
-    Compute spatial and temporal gradients: Ix, Iy, It.
-    """
-    # Spatial gradients (Ix, Iy)
-    Ix = np.zeros_like(image1)
-    Iy = np.zeros_like(image1)
-    Ix[:, 1:] = image1[:, 1:] - image1[:, :-1]  # I(x) - I(x-1)
-    Iy[1:, :] = image1[1:, :] - image1[:-1, :]  # I(y) - I(y-1)
-
-    # Temporal gradient (It)
-    It = image2 - image1
-
-    return Ix, Iy, It
-
-
-def compute_gradients_2P(image1, image2):
-    """
-    Compute spatial and temporal gradients: Ix, Iy, It.
-    """
-    # Spatial gradients (Ix, Iy)
-    Ix = np.zeros_like(image1)
-    Iy = np.zeros_like(image1)
-    Ix[:, 1:-1] = (image1[:, 2:] - image1[:, :-2]) / 2  # I(x+1) - I(x-1)
-    Iy[1:-1, :] = (image1[2:, :] - image1[:-2, :]) / 2  # I(y+1) - I(y-1)
-
-    # Temporal gradient (It)
-    It = image2 - image1
-
-    return Ix, Iy, It
+import numpy as np
+from scipy.signal import convolve2d
 
 
 def compute_gradients_sobel(image1, image2):
-    """Sobel operator from scratch (3x3 kernel)"""
-    kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+    kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
 
-    kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+    kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
 
-    Ix = convolve2d(image1, kernel_x, mode="same", boundary="symm")
-    Iy = convolve2d(image1, kernel_y, mode="same", boundary="symm")
+    # Symmetric spatial gradients
+    I_avg = 0.5 * (image1 + image2)
+    Ix = convolve2d(I_avg, kernel_x, mode="same", boundary="symm")
+    Iy = convolve2d(I_avg, kernel_y, mode="same", boundary="symm")
 
-    # Temporal gradient (It)
     It = image2 - image1
-
     return Ix, Iy, It
 
 
 def lucas_kanade(
-    image1: jnp.ndarray, image2: jnp.ndarray, type: str = "1P", window_size: int = 5
+    image1,
+    image2,
+    window_size: int = 5,
+    eigen_threshold: float = 1e-3,
 ):
-    """
-    Compute optical flow using Lucas-Kanade method.
-    """
     if image1.shape != image2.shape:
-        raise ValueError(
-            f"Images must have the same shape, but got {image1.shape} and {image2.shape}"
-        )
-    if type == "1P":
-        Ix, Iy, It = compute_gradients_1P(image1, image2)
-    elif type == "2P":
-        Ix, Iy, It = compute_gradients_2P(image1, image2)
-    elif type == "sobel":
-        Ix, Iy, It = compute_gradients_sobel(image1, image2)
-    else:
-        raise ValueError(
-            "This gradient type doesn't exist, choose from: \n-'1P': 1-Pixel difference \n-'2P': 2-Pixels difference \n-'sobel': Sobel gradient"
-        )
+        raise ValueError("Images must have the same shape")
 
-    half_window = window_size // 2
-    flow_u = np.zeros_like(image1)
-    flow_v = np.zeros_like(image1)
+    image1 = np.asarray(image1, dtype=np.float32)
+    image2 = np.asarray(image2, dtype=np.float32)
 
-    # Iterate over each pixel
-    for i in range(half_window, image1.shape[0] - half_window):
-        for j in range(half_window, image1.shape[1] - half_window):
-            # Extract window of gradients
-            Ix_window = Ix[
-                i - half_window : i + half_window + 1,
-                j - half_window : j + half_window + 1,
-            ].flatten()
-            Iy_window = Iy[
-                i - half_window : i + half_window + 1,
-                j - half_window : j + half_window + 1,
-            ].flatten()
-            It_window = It[
-                i - half_window : i + half_window + 1,
-                j - half_window : j + half_window + 1,
-            ].flatten()
+    Ix, Iy, It = compute_gradients_sobel(image1, image2)
 
-            # Formulate A and b
-            a = np.stack((Ix_window, Iy_window), axis=-1)
-            b = -It_window
+    h, w = image1.shape
+    half = window_size // 2
 
-            # Solve least squares problem: x = (A^T A)^(-1) A^T b
-            flow_u[i, j], flow_v[i, j] = np.linalg.lstsq(a, b, rcond=None)[0]
+    flow_u = np.zeros((h, w), dtype=np.float32)
+    flow_v = np.zeros((h, w), dtype=np.float32)
+
+    for i in range(half, h - half):
+        for j in range(half, w - half):
+            Ix_w = Ix[i - half : i + half + 1, j - half : j + half + 1].ravel()
+            Iy_w = Iy[i - half : i + half + 1, j - half : j + half + 1].ravel()
+            It_w = It[i - half : i + half + 1, j - half : j + half + 1].ravel()
+
+            A = np.stack((Ix_w, Iy_w), axis=1)
+            b = -It_w
+
+            ATA = A.T @ A
+            min_eig = np.min(np.linalg.eigvals(ATA))
+
+            if min_eig < eigen_threshold:
+                warnings.warn(
+                    f"Lucas–Kanade ill-conditioned at pixel ({i}, {j}): "
+                    f"min eigenvalue = {min_eig:.2e}",
+                    RuntimeWarning,
+                )
+                continue
+
+            v = np.linalg.solve(ATA, A.T @ b)
+            flow_u[i, j], flow_v[i, j] = v
 
     return flow_u, flow_v
 
