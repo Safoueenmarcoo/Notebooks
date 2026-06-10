@@ -4,8 +4,6 @@ from jax import jacfwd  # type: ignore
 import gymnasium as gym  # type: ignore
 from typing import Any, Tuple, Optional, Union, List, Dict
 import jax.numpy as jnp  # type: ignore
-from jax import jit as jjit  # type: ignore
-from numba import jit as njit  # type: ignore
 import numpy as np  # type: ignore
 from scipy.signal import convolve2d  # type: ignore
 from sklearn.preprocessing import normalize  # type: ignore
@@ -21,7 +19,6 @@ import cv2  # type: ignore
 "################################################################################# Control #################################################################################"
 
 
-@jjit
 def is_stable(A: jnp.ndarray) -> bool:
     """
     Check if a matrix A is stable.
@@ -43,7 +40,6 @@ def is_stable(A: jnp.ndarray) -> bool:
     return stable
 
 
-@jjit
 def controllability_matrix(A: jnp.ndarray, B: jnp.ndarray) -> jnp.ndarray:
     """
     Compute the controllability matrix of a system defined by matrices A and B.
@@ -62,7 +58,6 @@ def controllability_matrix(A: jnp.ndarray, B: jnp.ndarray) -> jnp.ndarray:
     return C
 
 
-@jjit
 def is_controllable(A: jnp.ndarray, B: jnp.ndarray) -> bool:
     """
     Check if a system defined by matrices A and B is controllable.
@@ -79,7 +74,6 @@ def is_controllable(A: jnp.ndarray, B: jnp.ndarray) -> bool:
     return bool(rank == A.shape[0])
 
 
-@jjit
 def observability_matrix(A: jnp.ndarray, C: jnp.ndarray) -> jnp.ndarray:
     """
     Compute the observability matrix of a system defined by matrices A and C.
@@ -98,7 +92,6 @@ def observability_matrix(A: jnp.ndarray, C: jnp.ndarray) -> jnp.ndarray:
     return Obs
 
 
-@jjit
 def is_observable(A: jnp.ndarray, C: jnp.ndarray) -> bool:
     """
     Check if a system defined by matrices A and C is observable.
@@ -118,7 +111,6 @@ def is_observable(A: jnp.ndarray, C: jnp.ndarray) -> bool:
 "################################################################################# Kalman Filter #################################################################################"
 
 
-@njit(nopython=True)
 def KalmanFilter_1D(
     est: float, mea_err: float, measurements: List[float]
 ) -> List[float]:
@@ -365,9 +357,9 @@ class KalmanFilter:
         Raises:
             RuntimeError: If the control input vector has an invalid shape or an error occurs during prediction.
         """
-        if type(self) is KalmanFilter and u_k.shape != (self.B.shape[1], 1):
+        if type(self) is KalmanFilter and u_k.shape[0] != self.B.shape[1]:
             raise RuntimeError(
-                f"The Control input vector u_k must be a column vector with shape ({self.B.shape[1]}, 1), got {u_k.shape}!"
+                f"The Control input vector u_k must be a column vector with shape ({self.B.shape[1]}, 1) or ({self.B.shape[1]},), got {u_k.shape}!"
             )
         try:
             u_k = u_k.reshape((-1, 1))
@@ -390,11 +382,12 @@ class KalmanFilter:
         Raises:
             RuntimeError: If the measurement vector has an invalid shape or an error occurs during update.
         """
-        if type(self) is KalmanFilter and x_km.shape != (self.C.shape[1], 1):
+        if type(self) is KalmanFilter and x_km.shape[0] != self.C.shape[1]:
             raise RuntimeError(
-                f"The Measured state vector x_km must be a column vector with shape ({self.C.shape[1]}, 1), got {x_km.shape}!"
+                f"The Measured state vector x_km must be a column vector with shape ({self.C.shape[1]}, 1) or ({self.C.shape[1]},), got {x_km.shape}!"
             )
         try:
+            x_km = x_km.reshape((-1, 1))
             self.K = self._kalman_function()
             self.x_k, self.P = self._current_state_and_process(x_km)
             return self.x_k
