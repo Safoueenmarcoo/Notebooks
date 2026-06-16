@@ -4,12 +4,15 @@ from jax import jacfwd  # type: ignore
 import gymnasium as gym  # type: ignore
 from typing import Any, Tuple, Optional, Union, List, Dict
 import jax.numpy as jnp  # type: ignore
+import jax.random as jrandom  # type: ignore
+from jax import Array as jArray  # type: ignore
 import numpy as np  # type: ignore
 from scipy.signal import convolve2d  # type: ignore
 from sklearn.preprocessing import normalize  # type: ignore
 import tensorflow as tf  # type: ignore
 from tqdm import tqdm  # type: ignore
 import time
+from time import time as ttime  # type: ignore
 from gymnasium.spaces import Discrete  # type: ignore
 import warnings  # type: ignore
 from jax.image import resize  # type: ignore
@@ -140,24 +143,63 @@ class KalmanFilter:
     Implements a discrete-time Kalman Filter for state estimation in linear dynamic systems.
 
     The filter operates in two stages:
-    1. Prediction - estimates the next state using system dynamics.
-    2. Update - corrects estimates using noisy measurements.
+    1. Prediction: propagates the current state estimate using the system dynamics.
+    2. Update: corrects the predicted estimate using noisy measurements.
+
+    The filter supports automatic generation of process noise vectors,
+    measurement noise vectors, and the initial covariance matrix when
+    they are not explicitly provided.
+
+    Notation:
+        n : Dimension of the state vector.
+        m : Dimension of the control input vector.
+        p : Dimension of the measurement (observation) vector.
 
     Attributes:
-        x_k (jnp.ndarray): Current state estimate vector (shape n x 1).
-        A (jnp.ndarray): State transition matrix (shape n x n).
-        B (jnp.ndarray): Control input matrix (shape n x m).
-        H (jnp.ndarray): Observation matrix (shape p x n).
-        C (jnp.ndarray): Output matrix for measurements (shape p x n).
-        R (jnp.ndarray): Measurement noise covariance matrix (shape p x p).
-        Q (jnp.ndarray): Process noise covariance matrix (shape n x n).
-        Z (jnp.ndarray): Measurement noise vector (shape p x 1).
-        w_k (jnp.ndarray): Process noise vector (shape n x 1).
-        P (jnp.ndarray): Error covariance matrix (shape n x n).
-        P_0 (jnp.ndarray): Initial error covariance matrix (shape n x n).
-        K (jnp.ndarray): Kalman gain matrix from last update (shape n x p).
+        x_0 (jnp.ndarray):
+            Initial state estimate vector (n × 1).
 
+        x_k (jnp.ndarray):
+            Current state estimate vector (n × 1).
 
+        A (jnp.ndarray):
+            State transition matrix (n × n).
+
+        B (jnp.ndarray):
+            Control input matrix (n × m).
+
+        H (jnp.ndarray):
+            Observation matrix (p × n).
+
+        C (jnp.ndarray):
+            Measurement output matrix (p × n).
+
+        R (jnp.ndarray):
+            Measurement noise covariance matrix (p × p).
+
+        Q (jnp.ndarray):
+            Process noise covariance matrix (n × n).
+
+        Z (jnp.ndarray):
+            Measurement noise vector (p × 1).
+            Randomly generated from N(0, R) when not provided.
+
+        w_k (jnp.ndarray):
+            Process noise vector (n × 1).
+            Randomly generated from N(0, Q) when not provided.
+
+        P_0 (jnp.ndarray):
+            Initial error covariance matrix (n × n).
+            Initialized with ones when not provided.
+
+        P (jnp.ndarray):
+            Current error covariance matrix (n × n).
+
+        K (jnp.ndarray):
+            Kalman gain matrix from the latest update step.
+
+        _rng_key:
+            Internal JAX random number generator key used for noise generation.
     """
 
     def __init__(
@@ -169,27 +211,50 @@ class KalmanFilter:
         C: jnp.ndarray,
         R: jnp.ndarray,
         Q: jnp.ndarray,
-        Z: jnp.ndarray,
-        w_k: jnp.ndarray,
-        P_0: jnp.ndarray,
-    ):
+        Z: jnp.ndarray = None,
+        w_k: jnp.ndarray = None,
+        P_0: jnp.ndarray = None,
+    ) -> None:
         """
-        Initialize Kalman Filter with system parameters and initial state.
+        Initialize a Kalman Filter instance.
 
         Args:
-            x_0 (jnp.ndarray): Initial state estimate (n x 1).
-            A (jnp.ndarray): State transition matrix (n x n).
-            B (jnp.ndarray): Control input matrix (n x m).
-            H (jnp.ndarray): Observation matrix (p x n).
-            C (jnp.ndarray): Output matrix for measurements (p x n).
-            R (jnp.ndarray): Measurement noise covariance matrix (p x p).
-            Q (jnp.ndarray): Process noise covariance matrix (n x n).
-            Z (jnp.ndarray): Measurement noise vector (p x 1).
-            w_k (jnp.ndarray): Process noise vector (n x 1).
-            P_0 (jnp.ndarray): Initial error covariance matrix (n x n).
+            x_0 (jnp.ndarray):
+                Initial state estimate (n × 1).
+
+            A (jnp.ndarray):
+                State transition matrix (n × n).
+
+            B (jnp.ndarray):
+                Control input matrix (n × m).
+
+            H (jnp.ndarray):
+                Observation matrix (p × n).
+
+            C (jnp.ndarray):
+                Measurement output matrix (p × n).
+
+            R (jnp.ndarray):
+                Measurement noise covariance matrix (p × p).
+
+            Q (jnp.ndarray):
+                Process noise covariance matrix (n × n).
+
+            Z (jnp.ndarray, optional):
+                Measurement noise vector (p × 1).
+                If None, a random sample is drawn from N(0, R).
+
+            w_k (jnp.ndarray, optional):
+                Process noise vector (n × 1).
+                If None, a random sample is drawn from N(0, Q).
+
+            P_0 (jnp.ndarray, optional):
+                Initial error covariance matrix (n × n).
+                If None, a matrix of ones with shape (n, n) is used.
 
         Raises:
-            RuntimeError: If any matrix or vector does not match the expected shape.
+            RuntimeError:
+                If any matrix or vector has an invalid shape.
         """
         self.x_0 = x_0.reshape((-1, 1))
         self.x_k = self.x_0
@@ -199,14 +264,42 @@ class KalmanFilter:
         self.C = C
         self.R = R
         self.Q = Q
-        self.Z = Z
-        self.w_k = w_k
-        self.P = P_0
-        self.P_0 = P_0
+        self._rng_key = jrandom.PRNGKey(int(ttime()))
+        if Z is None:
+            self.Z = jrandom.multivariate_normal(
+                self._next_key(), mean=jnp.zeros(self.R.shape[0]), cov=self.R
+            ).reshape((-1, 1))
+        else:
+            self.Z = Z
+
+        if w_k is None:
+            self.w_k = jrandom.multivariate_normal(
+                self._next_key(), mean=jnp.zeros(self.A.shape[0]), cov=self.Q
+            ).reshape((-1, 1))
+        else:
+            self.w_k = w_k
+
+        if P_0 is None:
+            self.P_0 = jnp.ones(self.A.shape)
+
+        else:
+            self.P_0 = P_0
+        self.P = self.P_0
         if type(self) is KalmanFilter:
             assert self.__verify_matrices()
 
-    def __verify_matrices(self):
+    def _next_key(self) -> jArray:
+        """
+        Generate a new JAX PRNG subkey.
+
+        Returns:
+            jax.Array:
+                A fresh PRNG subkey used for random sampling.
+        """
+        self._rng_key, subkey = jrandom.split(self._rng_key)
+        return subkey
+
+    def __verify_matrices(self) -> bool:
         """
         Verify that all matrices and vectors have the correct shapes.
 
@@ -317,14 +410,13 @@ class KalmanFilter:
         except Exception as e:
             raise RuntimeError(f"Error in the Kalman gain function: {e}") from e
 
-    def _current_state_and_process(
-        self, x_km: jnp.ndarray
-    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    def _current_state_and_process(self, x_km: jnp.ndarray):
+        # -> Tuple[jnp.ndarray, jnp.ndarray]:
         """
         Update the state estimate using a measurement and the Kalman gain.
 
         Args:
-            x_km (jnp.ndarray): Noisy measurement vector (shape p x 1).
+            x_km (jnp.ndarray): Noisy measurement vector with shape (n x 1) or (n, ).
 
         Returns:
             Tuple[jnp.ndarray, jnp.ndarray]:
@@ -349,7 +441,7 @@ class KalmanFilter:
         Predict the next state based on the control input and process model.
 
         Args:
-            u_k (jnp.ndarray): Control input vector (m x 1).
+            u_k (jnp.ndarray): Control input vector (m x 1) or (m, ).
 
         Returns:
             jnp.ndarray: Updated state estimate vector (n x 1).
@@ -374,7 +466,7 @@ class KalmanFilter:
         Update the state estimate based on the new measurement and the Kalman Gain matrix K (n x p).
 
         Args:
-            x_km (jnp.ndarray): Measured state vector (n x 1).
+            x_km (jnp.ndarray): Measured state vector (n x 1) or (n, ).
 
         Returns:
             jnp.ndarray: Updated state estimate vector (n x 1).
