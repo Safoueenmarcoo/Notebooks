@@ -110,40 +110,62 @@ class OpticalFlow:
         self, image1: np.ndarray, image2: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Compute spatial and temporal gradients using Sobel operator.
+        Compute the spatial and temporal image gradients.
+
+        The spatial gradients are computed using the Sobel operator applied to
+        the average of both images, while the temporal gradient is obtained by
+        subtracting the first image from the second.
 
         Args:
-            image1: First image (H, W)
-            image2: Second image (H, W)
+            image1 (np.ndarray):
+                First grayscale image with shape (H, W).
+
+            image2 (np.ndarray):
+                Second grayscale image with shape (H, W).
 
         Returns:
-            tuple: (Ix, Iy, It) - Spatial gradients in x, y directions and temporal gradient
+            tuple[np.ndarray, np.ndarray, np.ndarray]:
+                A tuple containing:
+
+                - Ix: Horizontal image gradient.
+                - Iy: Vertical image gradient.
+                - It: Temporal image gradient.
         """
-        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
-        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+        kernel_x: np.ndarray = np.array(
+            [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32
+        )
+        kernel_y: np.ndarray = np.array(
+            [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32
+        )
 
-        # Symmetric spatial gradients
-        I_avg = 0.5 * (image1 + image2)
-        Ix = convolve2d(I_avg, kernel_x, mode="same", boundary="symm")
-        Iy = convolve2d(I_avg, kernel_y, mode="same", boundary="symm")
+        I_avg: np.ndarray = 0.5 * (image1 + image2)
+        Ix: np.ndarray = convolve2d(I_avg, kernel_x, mode="same", boundary="symm")
+        Iy: np.ndarray = convolve2d(I_avg, kernel_y, mode="same", boundary="symm")
 
-        It = image2 - image1
+        It: np.ndarray = image2 - image1
         return Ix, Iy, It
 
     def _downsample_image(self, image: np.ndarray, level: int) -> np.ndarray:
         """
-        Downsample hierarchically: apply blur+stride level times.
+        Construct a lower-resolution image for a Gaussian pyramid.
+
+        At each pyramid level, a small box filter is applied before
+        subsampling the image by a factor of two to reduce aliasing.
 
         Args:
-            image: Input image (H, W)
-            level: Number of downsampling levels to apply
+            image (np.ndarray):
+                Input image with shape (H, W).
+
+            level (int):
+                Number of pyramid levels to apply.
 
         Returns:
-            Downsampled image with shape (H/(2^level), W/(2^level))
+            np.ndarray:
+                Downsampled image after ``level`` reductions.
         """
-        kernel = np.ones((2, 2)) / 4  # fixed small box filter
+        kernel: np.ndarray = np.ones((2, 2)) / 4
         for _ in range(level):
-            image = convolve2d(image, kernel, mode="same")
+            image: np.ndarray = convolve2d(image, kernel, mode="same")
             image = image[::2, ::2]
         return image
 
@@ -155,16 +177,27 @@ class OpticalFlow:
         method: str,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Upsample flow fields and scale flow magnitudes appropriately.
+        Upsample an optical flow field to a higher image resolution.
+
+        The flow vectors are resized using the selected interpolation method,
+        and their magnitudes are scaled to account for the change in image size.
 
         Args:
-            u_coarse: Horizontal flow component (Hc, Wc)
-            v_coarse: Vertical flow component (Hc, Wc)
-            new_shape: Target shape (Hf, Wf), e.g. (250, 250)
-            method: Interpolation method ('bilinear', 'nearest', etc.)
+            u_coarse (np.ndarray):
+                Horizontal flow component.
+
+            v_coarse (np.ndarray):
+                Vertical flow component.
+
+            new_shape (tuple[int, int]):
+                Desired output shape (H, W).
+
+            method (str):
+                Interpolation method used during resizing.
 
         Returns:
-            tuple: (u_fine, v_fine) - Upsampled flow fields with shape (Hf, Wf)
+            tuple[np.ndarray, np.ndarray]:
+                Upsampled horizontal and vertical flow fields.
         """
         Hc, Wc = u_coarse.shape
         Hf, Wf = new_shape
@@ -189,28 +222,41 @@ class OpticalFlow:
         borderValue: int,
     ) -> np.ndarray:
         """
-        Backward warp of I2 using flow fields (u, v).
+        Warp an image according to an optical flow field.
+
+        Backward warping is performed using OpenCV's ``remap`` function.
+        Each pixel is sampled from the position indicated by the estimated
+        horizontal and vertical flow components.
 
         Args:
-            I2: Image to warp, shape (H, W) or (H, W, 3)
-            u: Horizontal optical flow field, shape (H, W)
-            v: Vertical optical flow field, shape (H, W)
-            interpolation: OpenCV interpolation flag (e.g., cv2.INTER_LINEAR)
-            borderMode: OpenCV border mode flag (e.g., cv2.BORDER_CONSTANT)
-            borderValue: Value for border pixels
+            I2 (np.ndarray):
+                Image to warp.
+
+            u (np.ndarray):
+                Horizontal optical flow.
+
+            v (np.ndarray):
+                Vertical optical flow.
+
+            interpolation (int):
+                OpenCV interpolation flag.
+
+            borderMode (int):
+                OpenCV border handling mode.
+
+            borderValue (int):
+                Constant value used for border padding.
 
         Returns:
-            I2_warped: Warped image, same shape as I2
+            np.ndarray:
+                Warped image with the same dimensions as ``I2``.
         """
         H, W = u.shape
 
-        # create base grid
         x, y = np.meshgrid(np.arange(W), np.arange(H))
 
-        # destination coordinates in I2
         x2 = x + np.asarray(u)
         y2 = y + np.asarray(v)
-        # OpenCV remap wants float32 maps
         map_x = x2.astype(np.float32)
         map_y = y2.astype(np.float32)
 
@@ -226,12 +272,46 @@ class OpticalFlow:
         return I2_warped
 
     def _gaussian_blur(self, Img, sigma=1.0) -> np.ndarray:
+        """
+        Apply Gaussian smoothing to an image.
+
+        The kernel size is automatically determined from the
+        specified standard deviation.
+
+        Args:
+            Img (np.ndarray):
+                Input image.
+
+            sigma (float, optional):
+                Standard deviation of the Gaussian kernel.
+                Defaults to 1.0.
+
+        Returns:
+            np.ndarray:
+                Smoothed image.
+        """
         ksize = int(6 * sigma + 1)
         if ksize % 2 == 0:
             ksize += 1
         return cv2.GaussianBlur(Img, (ksize, ksize), sigma)
 
     def _compute_descriptor(self, image: np.ndarray) -> np.ndarray:
+        """
+        Compute a normalized gradient-magnitude descriptor.
+
+        The descriptor is obtained by computing the image gradients,
+        their magnitude, and normalizing the result by a Gaussian-
+        smoothed version of the magnitude. This representation is
+        more robust to illumination changes.
+
+        Args:
+            image (np.ndarray):
+                Input grayscale image.
+
+        Returns:
+            np.ndarray:
+                Normalized gradient descriptor.
+        """
         Ix, Iy, _ = self._compute_gradients_sobel(image, image)
         mag = np.sqrt(Ix**2 + Iy**2)
         mag = mag / (self._gaussian_blur(mag) + 1e-6)
@@ -242,19 +322,41 @@ class OpticalFlow:
         image1: np.ndarray = None,
         image2: np.ndarray = None,
         window_size: int = 5,
-        eigen_threshold: float = 1e-3,
         warn_ill_conditioned: bool = False,
+        eigen_threshold: float = 1e-3,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Compute optical flow using Lucas-Kanade method.
+        Estimate dense optical flow using the Lucas-Kanade method.
+
+        The optical flow is estimated independently for each pixel by
+        solving the optical flow constraint equation over a local window.
+        Pixels whose local structure tensor is ill-conditioned are ignored.
 
         Args:
-            window_size: Size of the window for local computation (must be odd), default 5
-            eigen_threshold: Minimum eigenvalue threshold for matrix invertibility, default 1e-3
-            warn_ill_conditioned: Whether to emit warnings for ill-conditioned systems, default False
+            image1 (Optional[np.ndarray]):
+                First grayscale image. If ``None``, the image provided
+                during initialization is used.
+
+            image2 (Optional[np.ndarray]):
+                Second grayscale image. If ``None``, the image provided
+                during initialization is used.
+
+            window_size (int, optional):
+                Size of the local estimation window.
+
+            warn_ill_conditioned (bool, optional):
+                Whether to emit warnings for ill-conditioned pixels.
+
+            eigen_threshold (float, optional):
+                Minimum eigenvalue required to solve the linear system.
 
         Returns:
-            tuple: (flow_u, flow_v) - Horizontal and vertical optical flow fields, shape (H, W)
+            tuple[np.ndarray, np.ndarray]:
+                Horizontal and vertical optical flow fields.
+
+        Raises:
+            ValueError:
+                If the window size is invalid.
         """
         if window_size % 2 == 0:
             raise ValueError("Window_size must b odd")
@@ -316,27 +418,57 @@ class OpticalFlow:
         warn_ill_conditioned: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Compute optical flow using coarse-to-fine pyramidal Lucas-Kanade approach.
+        Estimate dense optical flow using a coarse-to-fine image pyramid.
+
+        The images are first downsampled to the coarsest pyramid level,
+        where an initial flow estimate is computed. The flow is then
+        iteratively upsampled, refined, and propagated toward the
+        original image resolution.
 
         Args:
-            max_level: Number of pyramid levels, default 3
-            base_window_size: Base window size for Lucas-Kanade at finest level, default 10
-            remap_interpolation: OpenCV interpolation method for image warping (e.g., cv2.INTER_LINEAR), default cv2.INTER_LINEAR
-            remap_borderMode: OpenCV border mode for image warping (e.g., cv2.BORDER_CONSTANT), default cv2.BORDER_CONSTANT
-            remap_borderValue: Border value for constant border mode, default 0
-            resize_method: Interpolation method for flow upsampling ('bilinear', 'nearest', etc.), default 'bilinear'
-            inner_iterations: Number of refinement iterations per pyramid level, default 3
-            eigen_threshold: Minimum eigenvalue threshold for Lucas-Kanade solver, default 1e-3
-            warn_ill_conditioned: Whether to emit warnings for ill-conditioned systems, default False
+            image1 (Optional[np.ndarray]):
+                First grayscale image.
+
+            image2 (Optional[np.ndarray]):
+                Second grayscale image.
+
+            max_level (int, optional):
+                Number of pyramid levels.
+
+            base_window_size (int, optional):
+                Lucas-Kanade window size at the finest level.
+
+            remap_interpolation (int, optional):
+                OpenCV interpolation method used during image warping.
+
+            remap_borderMode (int, optional):
+                Border handling mode used by OpenCV.
+
+            remap_borderValue (int, optional):
+                Constant border value.
+
+            resize_method (str, optional):
+                Interpolation method used for flow upsampling.
+
+            inner_iterations (int, optional):
+                Number of refinement iterations per pyramid level.
+
+            eigen_threshold (float, optional):
+                Eigenvalue threshold used by Lucas-Kanade.
+
+            warn_ill_conditioned (bool, optional):
+                Whether to emit warnings for ill-conditioned systems.
 
         Returns:
-            tuple: (u_flow, v_flow) - Horizontal and vertical optical flow fields at original resolution, shape (H, W)
+            tuple[np.ndarray, np.ndarray]:
+                Horizontal and vertical optical flow fields at the
+                original image resolution.
         """
         if image1 is None:
             image1 = self.image1
         if image2 is None:
             image2 = self.image2
-        # Coarsest level
+
         new_image1 = self._downsample_image(image1, max_level)
         new_image2 = self._downsample_image(image2, max_level)
 
@@ -344,7 +476,6 @@ class OpticalFlow:
         v_flow = np.zeros_like(new_image1)
 
         for level in range(max_level, 0, -1):
-            # Scale-aware window size
             window_size = max(3, base_window_size // (2 ** (level - 1)))
             if window_size % 2 == 0:
                 window_size += 1
@@ -359,7 +490,6 @@ class OpticalFlow:
                     remap_borderValue,
                 )
 
-                # Create temporary OpticalFlow instance for this level
                 temp_flow = OpticalFlow(new_image1, warped_image2)
                 du, dv = temp_flow.LucasKanade(
                     window_size=window_size,
@@ -370,7 +500,6 @@ class OpticalFlow:
                 u_flow += du
                 v_flow += dv
 
-            # Move to next finer level
             if level > 1:
                 new_image1 = self._downsample_image(self.image1, level - 1)
                 new_image2 = self._downsample_image(self.image2, level - 1)
@@ -382,7 +511,6 @@ class OpticalFlow:
                     resize_method,
                 )
 
-                # Safety check
                 assert u_flow.shape == new_image1.shape
 
         self.__ctf_u_flow = u_flow
@@ -392,6 +520,53 @@ class OpticalFlow:
     def RobustFeatureDescriptor(
         self, image1: np.ndarray = None, image2: np.ndarray = None
     ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Estimate dense optical flow using a coarse-to-fine image pyramid.
+
+        The images are first downsampled to the coarsest pyramid level,
+        where an initial flow estimate is computed. The flow is then
+        iteratively upsampled, refined, and propagated toward the
+        original image resolution.
+
+        Args:
+            image1 (Optional[np.ndarray]):
+                First grayscale image.
+
+            image2 (Optional[np.ndarray]):
+                Second grayscale image.
+
+            max_level (int, optional):
+                Number of pyramid levels.
+
+            base_window_size (int, optional):
+                Lucas-Kanade window size at the finest level.
+
+            remap_interpolation (int, optional):
+                OpenCV interpolation method used during image warping.
+
+            remap_borderMode (int, optional):
+                Border handling mode used by OpenCV.
+
+            remap_borderValue (int, optional):
+                Constant border value.
+
+            resize_method (str, optional):
+                Interpolation method used for flow upsampling.
+
+            inner_iterations (int, optional):
+                Number of refinement iterations per pyramid level.
+
+            eigen_threshold (float, optional):
+                Eigenvalue threshold used by Lucas-Kanade.
+
+            warn_ill_conditioned (bool, optional):
+                Whether to emit warnings for ill-conditioned systems.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]:
+                Horizontal and vertical optical flow fields at the
+                original image resolution.
+        """
         if image1 is None:
             image1 = self.image1
         if image2 is None:
