@@ -2,34 +2,109 @@ import jax.numpy as jnp  # type: ignore
 import numpy as np  # type: ignore
 from scipy.signal import convolve2d  # type: ignore
 import warnings  # type: ignore
+from typing import Optional
 from jax.image import resize  # type: ignore
 import cv2  # type: ignore
 
 
 class OpticalFlow:
-    def __init__(self, image1: np.ndarray, image2: np.ndarray):
+    """
+    Estimate dense optical flow between two grayscale images.
+
+    This class implements three optical flow estimation methods:
+
+    1. Lucas-Kanade (local differential method).
+    2. Coarse-to-Fine pyramidal Lucas-Kanade.
+    3. Robust Feature Descriptor (RFD)-based optical flow.
+
+        Notation:
+            H : Image height (number of rows).
+            W : Image width (number of columns).
+
+        Attributes:
+            image1 (np.ndarray):
+                First grayscale image with shape (H, W).
+
+            image2 (np.ndarray):
+                Second grayscale image with shape (H, W).
+
+            __lk_u_flow (Optional[np.ndarray]):
+                Horizontal optical flow estimated using Lucas-Kanade.
+
+            __lk_v_flow (Optional[np.ndarray]):
+                Vertical optical flow estimated using Lucas-Kanade.
+
+            __ctf_u_flow (Optional[np.ndarray]):
+                Horizontal optical flow estimated using the
+                Coarse-to-Fine method.
+
+            __ctf_v_flow (Optional[np.ndarray]):
+                Vertical optical flow estimated using the
+                Coarse-to-Fine method.
+
+            __rfd_u_flow (Optional[np.ndarray]):
+                Horizontal optical flow estimated using the
+                Robust Feature Descriptor method.
+
+            __rfd_v_flow (Optional[np.ndarray]):
+                Vertical optical flow estimated using the
+                Robust Feature Descriptor method.
+    """
+
+    def __init__(self, image1: np.ndarray, image2: np.ndarray) -> None:
         """
-        Initialize Optical Flow estimator with two images.
+        Initialize an Optical Flow estimator.
 
         Args:
-            image1: First image (H, W), grayscale numpy array
-            image2: Second image (H, W), grayscale numpy array
+            image1 (np.ndarray):
+                First grayscale image with shape (H, W).
+
+            image2 (np.ndarray):
+                Second grayscale image with shape (H, W).
+
+        Attributes:
+            image1 (np.ndarray):
+                First image converted to float32.
+
+            image2 (np.ndarray):
+                Second image converted to float32.
+
+            __lk_u_flow (Optional[np.ndarray]):
+                Cached horizontal Lucas-Kanade flow.
+
+            __lk_v_flow (Optional[np.ndarray]):
+                Cached vertical Lucas-Kanade flow.
+
+            __ctf_u_flow (Optional[np.ndarray]):
+                Cached horizontal Coarse-to-Fine flow.
+
+            __ctf_v_flow (Optional[np.ndarray]):
+                Cached vertical Coarse-to-Fine flow.
+
+            __rfd_u_flow (Optional[np.ndarray]):
+                Cached horizontal Robust Feature Descriptor flow.
+
+            __rfd_v_flow (Optional[np.ndarray]):
+                Cached vertical Robust Feature Descriptor flow.
 
         Raises:
-            ValueError: If images have different shapes
+            ValueError:
+                If the input images do not have identical dimensions.
         """
         if image1.shape != image2.shape:
             raise ValueError("Images must have the same shape")
 
-        self.image1 = np.asarray(image1, dtype=np.float32)
-        self.image2 = np.asarray(image2, dtype=np.float32)
+        self.image1: np.ndarray = np.asarray(image1, dtype=np.float32)
+        self.image2: np.ndarray = np.asarray(image2, dtype=np.float32)
 
-        self.__lk_u_flow = None
-        self.__lk_v_flow = None
-        self.__ctf_u_flow = None
-        self.__ctf_v_flow = None
-        self.__rfd_u_flow = None
-        self.__rfd_v_flow = None
+        self.__lk_u_flow: Optional[np.ndarray] = None
+        self.__lk_v_flow: Optional[np.ndarray] = None
+
+        self.__ctf_u_flow: Optional[np.ndarray] = None
+        self.__ctf_v_flow: Optional[np.ndarray] = None
+
+        self.__rfd_u_flow: Optional[np.ndarray] = None
+        self.__rfd_v_flow: Optional[np.ndarray] = None
 
     def _compute_gradients_sobel(
         self, image1: np.ndarray, image2: np.ndarray
@@ -150,13 +225,13 @@ class OpticalFlow:
 
         return I2_warped
 
-    def _gaussian_blur(self, Img, sigma=1.0):
+    def _gaussian_blur(self, Img, sigma=1.0) -> np.ndarray:
         ksize = int(6 * sigma + 1)
         if ksize % 2 == 0:
             ksize += 1
         return cv2.GaussianBlur(Img, (ksize, ksize), sigma)
 
-    def _compute_descriptor(self, image: np.ndarray):
+    def _compute_descriptor(self, image: np.ndarray) -> np.ndarray:
         Ix, Iy, _ = self._compute_gradients_sobel(image, image)
         mag = np.sqrt(Ix**2 + Iy**2)
         mag = mag / (self._gaussian_blur(mag) + 1e-6)
@@ -164,6 +239,8 @@ class OpticalFlow:
 
     def LucasKanade(
         self,
+        image1: np.ndarray = None,
+        image2: np.ndarray = None,
         window_size: int = 5,
         eigen_threshold: float = 1e-3,
         warn_ill_conditioned: bool = False,
@@ -179,12 +256,17 @@ class OpticalFlow:
         Returns:
             tuple: (flow_u, flow_v) - Horizontal and vertical optical flow fields, shape (H, W)
         """
-        if window_size % 2 == 1:
+        if window_size % 2 == 0:
             raise ValueError("Window_size must b odd")
 
-        Ix, Iy, It = self._compute_gradients_sobel(self.image1, self.image2)
+        if image1 is None:
+            image1 = self.image1
+        if image2 is None:
+            image2 = self.image2
 
-        h, w = self.image1.shape
+        Ix, Iy, It = self._compute_gradients_sobel(image1, image2)
+
+        h, w = image1.shape
         half = window_size // 2
 
         flow_u = np.zeros((h, w), dtype=np.float32)
@@ -264,6 +346,8 @@ class OpticalFlow:
         for level in range(max_level, 0, -1):
             # Scale-aware window size
             window_size = max(3, base_window_size // (2 ** (level - 1)))
+            if window_size % 2 == 0:
+                window_size += 1
 
             for _ in range(inner_iterations):
                 warped_image2 = self._warp_image(
@@ -307,7 +391,7 @@ class OpticalFlow:
 
     def RobustFeatureDescriptor(
         self, image1: np.ndarray = None, image2: np.ndarray = None
-    ):
+    ) -> tuple[np.ndarray, np.ndarray]:
         if image1 is None:
             image1 = self.image1
         if image2 is None:
