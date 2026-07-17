@@ -27,28 +27,6 @@ class OpticalFlow:
 
             image2 (np.ndarray):
                 Second grayscale image with shape (H, W).
-
-            __lk_u_flow (Optional[np.ndarray]):
-                Horizontal optical flow estimated using Lucas-Kanade.
-
-            __lk_v_flow (Optional[np.ndarray]):
-                Vertical optical flow estimated using Lucas-Kanade.
-
-            __ctf_u_flow (Optional[np.ndarray]):
-                Horizontal optical flow estimated using the
-                Coarse-to-Fine method.
-
-            __ctf_v_flow (Optional[np.ndarray]):
-                Vertical optical flow estimated using the
-                Coarse-to-Fine method.
-
-            __rfd_u_flow (Optional[np.ndarray]):
-                Horizontal optical flow estimated using the
-                Robust Feature Descriptor method.
-
-            __rfd_v_flow (Optional[np.ndarray]):
-                Vertical optical flow estimated using the
-                Robust Feature Descriptor method.
     """
 
     def __init__(self, image1: np.ndarray, image2: np.ndarray) -> None:
@@ -414,8 +392,8 @@ class OpticalFlow:
         remap_borderValue: int = 0,
         resize_method: str = "bilinear",
         inner_iterations: int = 3,
-        eigen_threshold: float = 1e-3,
         warn_ill_conditioned: bool = False,
+        eigen_threshold: float = 1e-3,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Estimate dense optical flow using a coarse-to-fine image pyramid.
@@ -453,11 +431,11 @@ class OpticalFlow:
             inner_iterations (int, optional):
                 Number of refinement iterations per pyramid level.
 
-            eigen_threshold (float, optional):
-                Eigenvalue threshold used by Lucas-Kanade.
-
             warn_ill_conditioned (bool, optional):
                 Whether to emit warnings for ill-conditioned systems.
+
+            eigen_threshold (float, optional):
+                Eigenvalue threshold used by Lucas-Kanade.
 
         Returns:
             tuple[np.ndarray, np.ndarray]:
@@ -493,8 +471,8 @@ class OpticalFlow:
                 temp_flow = OpticalFlow(new_image1, warped_image2)
                 du, dv = temp_flow.LucasKanade(
                     window_size=window_size,
-                    eigen_threshold=eigen_threshold,
                     warn_ill_conditioned=warn_ill_conditioned,
+                    eigen_threshold=eigen_threshold,
                 )
 
                 u_flow += du
@@ -521,52 +499,29 @@ class OpticalFlow:
         self, image1: np.ndarray = None, image2: np.ndarray = None
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Estimate dense optical flow using a coarse-to-fine image pyramid.
+        Estimate dense optical flow using robust feature descriptors.
 
-        The images are first downsampled to the coarsest pyramid level,
-        where an initial flow estimate is computed. The flow is then
-        iteratively upsampled, refined, and propagated toward the
-        original image resolution.
+        Instead of directly matching image intensities, this method
+        computes normalized gradient descriptors for both images and
+        applies the Coarse-to-Fine optical flow algorithm to these
+        descriptors. This approach improves robustness to illumination
+        variations and local intensity changes.
 
         Args:
             image1 (Optional[np.ndarray]):
-                First grayscale image.
+                First grayscale image. If ``None``, the image provided
+                during initialization is used.
 
             image2 (Optional[np.ndarray]):
-                Second grayscale image.
-
-            max_level (int, optional):
-                Number of pyramid levels.
-
-            base_window_size (int, optional):
-                Lucas-Kanade window size at the finest level.
-
-            remap_interpolation (int, optional):
-                OpenCV interpolation method used during image warping.
-
-            remap_borderMode (int, optional):
-                Border handling mode used by OpenCV.
-
-            remap_borderValue (int, optional):
-                Constant border value.
-
-            resize_method (str, optional):
-                Interpolation method used for flow upsampling.
-
-            inner_iterations (int, optional):
-                Number of refinement iterations per pyramid level.
-
-            eigen_threshold (float, optional):
-                Eigenvalue threshold used by Lucas-Kanade.
-
-            warn_ill_conditioned (bool, optional):
-                Whether to emit warnings for ill-conditioned systems.
+                Second grayscale image. If ``None``, the image provided
+                during initialization is used.
 
         Returns:
             tuple[np.ndarray, np.ndarray]:
-                Horizontal and vertical optical flow fields at the
-                original image resolution.
+                Horizontal and vertical optical flow fields computed
+                from the robust feature descriptors.
         """
+
         if image1 is None:
             image1 = self.image1
         if image2 is None:

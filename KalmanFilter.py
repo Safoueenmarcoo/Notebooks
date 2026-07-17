@@ -181,13 +181,6 @@ class KalmanFilter:
         K (jnp.ndarray):
             Kalman gain matrix from the latest update step.
 
-        __Zrandom (bool):
-            Indicates whether measurement noise is generated
-            automatically at each update step.
-
-        __w_krandom (bool):
-            Indicates whether process noise is generated
-            automatically at each prediction step.
     """
 
     def __init__(
@@ -450,7 +443,9 @@ class KalmanFilter:
         Raises:
             RuntimeError: If the control input vector has an invalid shape or an error occurs during prediction.
         """
-        if type(self) is KalmanFilter and u_k.shape[0] != self.B.shape[1]:
+        if type(self) is KalmanFilter and (
+            u_k.shape[0] != self.B.shape[1] or (u_k.ndim == 2 and u_k.shape[1] != 1)
+        ):
             raise RuntimeError(
                 f"The Control input vector u_k must be a column vector with shape ({self.B.shape[1]}, 1) or ({self.B.shape[1]},), got {u_k.shape}!"
             )
@@ -475,7 +470,9 @@ class KalmanFilter:
         Raises:
             RuntimeError: If the measurement vector has an invalid shape or an error occurs during update.
         """
-        if type(self) is KalmanFilter and x_km.shape[0] != self.C.shape[1]:
+        if type(self) is KalmanFilter and (
+            x_km.shape[0] != self.C.shape[1] or (x_km.ndim == 2 and x_km.shape[1] != 1)
+        ):
             raise RuntimeError(
                 f"The Measured state vector x_km must be a column vector with shape ({self.C.shape[1]}, 1) or ({self.C.shape[1]},), got {x_km.shape}!"
             )
